@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
 import "../src/MockPrivacyHook.sol";
+import "../src/SwapManager.sol";
 
 contract DeployWithMockHook is Script {
     function run() external {
@@ -27,6 +28,11 @@ contract DeployWithMockHook is Script {
         // Deploy MockPrivacyHook
         MockPrivacyHook mockHook = new MockPrivacyHook(swapManagerAddress);
         console2.log("MockPrivacyHook deployed at:", address(mockHook));
+        
+        // Authorize the MockPrivacyHook in SwapManager
+        SwapManager swapManager = SwapManager(swapManagerAddress);
+        swapManager.authorizeHook(address(mockHook));
+        console2.log("MockPrivacyHook authorized in SwapManager");
         
         vm.stopBroadcast();
         
@@ -57,6 +63,7 @@ contract DeployWithMockHook is Script {
         console2.log("\n=== Deployment Complete ===");
         console2.log("SwapManager:", swapManagerAddress);
         console2.log("MockPrivacyHook:", address(mockHook));
+        console2.log("Authorization: MockPrivacyHook authorized to submit batches");
         console2.log("Saved to:", outputFile);
     }
 }

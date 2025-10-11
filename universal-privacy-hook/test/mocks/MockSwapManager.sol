@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ISwapManager} from "../../src/privacy/interfaces/ISwapManager.sol";
+import {UniversalPrivacyHook} from "../../src/privacy/UniversalPrivacyHook.sol";
 
 /**
  * @title MockSwapManager
@@ -9,9 +10,7 @@ import {ISwapManager} from "../../src/privacy/interfaces/ISwapManager.sol";
  * @dev This mock simulates the AVS SwapManager without requiring Solidity 0.8.27
  */
 contract MockSwapManager is ISwapManager {
-    uint256 private taskCounter;
-    mapping(uint256 => SwapTask) public tasks;
-    mapping(uint256 => bytes32) public allTaskHashes;
+    mapping(bytes32 => bytes) public batchData;
     
     address public immutable avsDirectory;
     address public immutable stakeRegistry;
@@ -42,47 +41,55 @@ contract MockSwapManager is ISwapManager {
         taskCreator = _taskCreator;
     }
     
-    function createNewSwapTask(
-        address user,
-        address tokenIn,
-        address tokenOut,
-        bytes calldata encryptedAmount,
-        uint64 deadline
-    ) external override returns (SwapTask memory) {
-        taskCounter++;
+    // Called by hook when batch is ready for processing
+    function finalizeBatch(
+        bytes32 batchId,
+        bytes calldata _batchData
+    ) external override {
+        // Store batch data for operators to retrieve
+        batchData[batchId] = _batchData;
         
-        // Mock operator selection - return 3 test operators
-        address[] memory selectedOps = new address[](3);
-        selectedOps[0] = address(0xAAA1);
-        selectedOps[1] = address(0xAAA2);
-        selectedOps[2] = address(0xAAA3);
+        // Emit event for operators to monitor
+        emit BatchCreated(batchId, 0);
         
-        SwapTask memory newTask = SwapTask({
-            hook: msg.sender,
-            user: user,
-            tokenIn: tokenIn,
-            tokenOut: tokenOut,
-            encryptedAmount: encryptedAmount,
-            deadline: deadline,
-            taskCreatedBlock: uint32(block.number),
-            selectedOperators: selectedOps
-        });
-        
-        tasks[taskCounter] = newTask;
-        
-        // Store task hash (simulating AVS behavior)
-        bytes32 taskHash = keccak256(abi.encode(newTask));
-        allTaskHashes[taskCounter] = taskHash;
-        
-        return newTask;
+        // In real implementation, this would:
+        // 1. Select operators for this batch
+        // 2. Grant FHE decryption permissions
+        // 3. Start consensus period
     }
     
-    // Additional helper methods for testing
-    function getTask(uint256 taskId) external view returns (SwapTask memory) {
-        return tasks[taskId];
+    // Called by operators after matching
+    function submitBatchSettlement(
+        BatchSettlement calldata settlement,
+        bytes[] calldata operatorSignatures
+    ) external override {
+        // Mock implementation - just verify signatures count
+        require(operatorSignatures.length >= 3, "Insufficient signatures");
+        
+        // In real implementation, this would:
+        // 1. Verify operator signatures
+        // 2. Check consensus threshold
+        // 3. Call hook.settleBatch()
+        
+        emit BatchSettlementSubmitted(settlement.batchId, 
+            settlement.internalizedTransfers.length, 
+            settlement.hasNetSwap ? 1 : 0);
     }
     
-    function getTaskCount() external view returns (uint256) {
-        return taskCounter;
+    // Helper for testing - simulate operator consensus and settlement
+    function mockSettleBatch(
+        address hook,
+        bytes32 batchId,
+        TokenTransfer[] calldata internalizedTransfers,
+        NetSwap calldata netSwap,
+        bool hasNetSwap
+    ) external {
+        // Call the hook's settleBatch directly for testing
+        UniversalPrivacyHook(hook).settleBatch(
+            batchId,
+            internalizedTransfers,
+            netSwap,
+            hasNetSwap
+        );
     }
 }

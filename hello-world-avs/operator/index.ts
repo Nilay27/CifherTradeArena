@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { initializeCofheJs, decryptSwapTask } from "./cofheUtils";
+import { initializeCofheJs, batchDecryptAmounts, encryptAmount } from "./cofheUtils";
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -46,10 +46,12 @@ const registerOperator = async () => {
 
     // Registers as an Operator in EigenLayer.
     try {
+        const nonce = await wallet.getNonce();
         const tx1 = await delegationManager.registerAsOperator(
             "0x0000000000000000000000000000000000000000", // initDelegationApprover
             0, // allocationDelay
             "", // metadataURI
+            { nonce }
         );
         await tx1.wait();
         console.log("Operator registered to Core EigenLayer contracts");
@@ -93,9 +95,11 @@ const registerOperator = async () => {
 
         // Register Operator to AVS
         // Per release here: https://github.com/Layr-Labs/eigenlayer-middleware/blob/v0.2.1-mainnet-rewards/src/unaudited/ECDSAStakeRegistry.sol#L49
+        const nonce2 = await wallet.getNonce();
         const tx2 = await ecdsaRegistryContract.registerOperatorWithSignature(
             operatorSignatureWithSaltAndExpiry,
-            wallet.address
+            wallet.address,
+            { nonce: nonce2 }
         );
         await tx2.wait();
         console.log("Operator registered on AVS successfully");
@@ -107,24 +111,25 @@ const registerOperator = async () => {
         }
     }
     
-    // Register with SwapManager for task selection
+    // Register with SwapManager for batch processing
     try {
         // Check if already registered first
         const isAlreadyRegistered = await SwapManager.isOperatorRegistered(wallet.address);
         if (isAlreadyRegistered) {
-            console.log("Operator already registered for task selection");
+            console.log("Operator already registered for batch processing");
         } else {
-            console.log("Registering operator for task selection...");
-            const tx3 = await SwapManager.registerOperatorForTasks();
+            console.log("Registering operator for batch processing...");
+            const nonce3 = await wallet.getNonce();
+            const tx3 = await SwapManager.registerOperatorForBatches({ nonce: nonce3 });
             await tx3.wait();
-            console.log("Operator successfully registered for task selection");
+            console.log("Operator successfully registered for batch processing");
         }
         
         // Verify registration
         const isRegistered = await SwapManager.isOperatorRegistered(wallet.address);
         console.log(`Operator registration verified: ${isRegistered}`);
     } catch (error: any) {
-        console.error("Error registering for tasks:");
+        console.error("Error registering for batches:");
         console.error("Message:", error.message);
         if (error.reason) console.error("Reason:", error.reason);
         if (error.data) console.error("Data:", error.data);
@@ -139,134 +144,310 @@ const registerOperator = async () => {
     }
 };
 
-const decryptAndRespondToSwapTask = async (taskIndex: number, task: any, taskCreatedBlock: number) => {
+// Structure to hold intent details
+interface Intent {
+    intentId: string;
+    user: string;
+    tokenIn: string;
+    tokenOut: string;
+    encryptedAmount: string;
+    decryptedAmount?: bigint;
+}
+
+// Structure for matched trades
+interface InternalizedTransfer {
+    intentIdA: string;
+    intentIdB: string;
+    userA: string;
+    userB: string;
+    tokenA: string;
+    tokenB: string;
+    amountA: bigint;
+    amountB: bigint;
+    encryptedAmountA: string;  // Keep encrypted amounts for privacy
+    encryptedAmountB: string;  // Keep encrypted amounts for privacy
+}
+
+// Structure for net swap
+interface NetSwap {
+    tokenIn: string;
+    tokenOut: string;
+    netAmount: bigint;
+    remainingIntents: string[];
+}
+
+// FIFO matching algorithm based on Python implementation
+const matchIntents = (intents: Intent[]): { internalized: InternalizedTransfer[], netSwaps: Map<string, NetSwap> } => {
+    console.log(`\n=== Starting FIFO Order Matching ===`);
+    console.log(`Processing ${intents.length} intents`);
+    
+    const internalized: InternalizedTransfer[] = [];
+    const unmatchedByPair = new Map<string, Intent[]>();
+    
+    // Group intents by trading pair
+    for (const intent of intents) {
+        const pair = `${intent.tokenIn}->${intent.tokenOut}`;
+        const reversePair = `${intent.tokenOut}->${intent.tokenIn}`;
+        
+        // Check if there's a matching intent in the opposite direction
+        const reverseQueue = unmatchedByPair.get(reversePair) || [];
+        
+        if (reverseQueue.length > 0) {
+            // Match with first intent in reverse queue (FIFO)
+            const matchedIntent = reverseQueue[0];
+            const matchAmount = intent.decryptedAmount! < matchedIntent.decryptedAmount! 
+                ? intent.decryptedAmount! 
+                : matchedIntent.decryptedAmount!;
+            
+            // Create internalized transfer (encrypted amounts will be added later)
+            internalized.push({
+                intentIdA: matchedIntent.intentId,
+                intentIdB: intent.intentId,
+                userA: matchedIntent.user,
+                userB: intent.user,
+                tokenA: matchedIntent.tokenIn,
+                tokenB: intent.tokenIn,
+                amountA: matchAmount,
+                amountB: matchAmount,
+                encryptedAmountA: "",  // Will be encrypted during settlement preparation
+                encryptedAmountB: ""   // Will be encrypted during settlement preparation
+            });
+            
+            console.log(`Matched: ${matchedIntent.user} <-> ${intent.user} for ${matchAmount}`);
+            
+            // Update or remove matched intent
+            matchedIntent.decryptedAmount! -= matchAmount;
+            if (matchedIntent.decryptedAmount! === 0n) {
+                reverseQueue.shift();
+            }
+            
+            // Update current intent
+            intent.decryptedAmount! -= matchAmount;
+            
+            // If intent still has remaining amount, add to unmatched
+            if (intent.decryptedAmount! > 0n) {
+                if (!unmatchedByPair.has(pair)) {
+                    unmatchedByPair.set(pair, []);
+                }
+                unmatchedByPair.get(pair)!.push(intent);
+            }
+        } else {
+            // No match found, add to unmatched queue
+            if (!unmatchedByPair.has(pair)) {
+                unmatchedByPair.set(pair, []);
+            }
+            unmatchedByPair.get(pair)!.push(intent);
+        }
+    }
+    
+    // Calculate net swaps for remaining unmatched intents
+    const netSwaps = new Map<string, NetSwap>();
+    for (const [pair, unmatched] of unmatchedByPair.entries()) {
+        if (unmatched.length > 0) {
+            const [tokenIn, tokenOut] = pair.split('->');
+            const totalAmount = unmatched.reduce((sum, intent) => sum + intent.decryptedAmount!, 0n);
+            
+            netSwaps.set(pair, {
+                tokenIn,
+                tokenOut,
+                netAmount: totalAmount,
+                remainingIntents: unmatched.map(i => i.intentId)
+            });
+            
+            console.log(`Net swap needed: ${pair} - Amount: ${totalAmount}`);
+        }
+    }
+    
+    console.log(`Matching complete: ${internalized.length} internalized, ${netSwaps.size} net swaps`);
+    return { internalized, netSwaps };
+};
+
+const processBatch = async (batchId: string, batchData: any) => {
     try {
-        console.log(`\n=== Processing Swap Task ${taskIndex} ===`);
+        console.log(`\n=== Processing Batch ${batchId} ===`);
         
-        // Decrypt the swap task to get the actual amount
-        const decryptedTask = await decryptSwapTask(task);
-        
-        console.log(`Decrypted swap details:`);
-        console.log(`- User: ${decryptedTask.user}`);
-        console.log(`- Token In: ${decryptedTask.tokenIn}`);
-        console.log(`- Token Out: ${decryptedTask.tokenOut}`);
-        console.log(`- Amount: ${decryptedTask.decryptedAmount}`);
-        
-        // Calculate swap output (simplified - in real scenario this would involve price calculation)
-        // For demo purposes, using a simple 1:1 ratio
-        const outputAmount = decryptedTask.decryptedAmount;
-        
-        console.log(`Calculated output amount: ${outputAmount}`);
-        
-        // Create the message hash that includes task hash and decrypted amount
-        // The contract expects keccak256(abi.encode(task)) where task is the entire struct
-        // We need to encode the task as a tuple matching the SwapTask struct
-        // Pass values as an array in the correct order
-        const taskValues = [
-            task.hook,
-            task.user,
-            task.tokenIn,
-            task.tokenOut,
-            task.encryptedAmount,
-            task.deadline,
-            taskCreatedBlock,
-            [...task.selectedOperators] // Create a copy to avoid read-only array issues
-        ];
-        
-        // Encode the entire task struct as a tuple
-        const taskHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-            ["tuple(address,address,address,address,bytes,uint64,uint32,address[])"],
-            [taskValues]
-        ));
-        
-        // Create the message hash as keccak256(abi.encodePacked(taskHash, decryptedAmount))
-        const messageHash = ethers.keccak256(ethers.solidityPacked(
-            ["bytes32", "uint256"],
-            [taskHash, decryptedTask.decryptedAmount]
-        ));
-        
-        const messageBytes = ethers.getBytes(messageHash);
-        const signature = await wallet.signMessage(messageBytes);
-        
-        console.log(`Submitting response for task ${taskIndex}...`);
-        
-        // Prepare the aggregated signature format expected by the contract
-        const operators = [wallet.address];
-        const signatures = [signature];
-        const signedTaskResponse = ethers.AbiCoder.defaultAbiCoder().encode(
-            ["address[]", "bytes[]", "uint32"],
-            [operators, signatures, taskCreatedBlock]
+        // Decode batch data to get intent IDs
+        const [intentIds] = ethers.AbiCoder.defaultAbiCoder().decode(
+            ["bytes32[]", "address"],
+            batchData
         );
         
-        // Submit the response to the SwapManager
-        // Create a new array to avoid read-only array issues
-        const selectedOps = [...task.selectedOperators];
+        console.log(`Batch contains ${intentIds.length} intents`);
         
-        const tx = await SwapManager.respondToSwapTask(
-            {
-                hook: task.hook,
-                user: task.user,
-                tokenIn: task.tokenIn,
-                tokenOut: task.tokenOut,
-                encryptedAmount: task.encryptedAmount,
-                deadline: task.deadline,
-                taskCreatedBlock: taskCreatedBlock,
-                selectedOperators: selectedOps
-            },
-            taskIndex,
-            decryptedTask.decryptedAmount,
-            signedTaskResponse
+        // For this mock, we need to fetch intent details from MockPrivacyHook
+        // In production, this would come from the batch data or be queried
+        const intents: Intent[] = [];
+        
+        // Fetch intent details from MockPrivacyHook contract
+        // Load the hook address from deployment
+        const mockHookDeployment = JSON.parse(
+            fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/mock-hook/${chainId}.json`), 'utf8')
+        );
+        const hookAddress = mockHookDeployment.addresses.mockPrivacyHook;
+        
+        if (!hookAddress) {
+            console.error("MockPrivacyHook address not found in deployment");
+            return;
+        }
+        
+        console.log(`Using MockPrivacyHook at: ${hookAddress}`);
+        const mockHookABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/MockPrivacyHook.json'), 'utf8'));
+        const mockHook = new ethers.Contract(hookAddress, mockHookABI, wallet);
+        
+        // Fetch and decrypt each intent
+        console.log("Fetching and decrypting intents...");
+        for (const intentId of intentIds) {
+            try {
+                const intent = await mockHook.getIntent(intentId);
+                intents.push({
+                    intentId: intentId,
+                    user: intent.user,
+                    tokenIn: intent.tokenIn,
+                    tokenOut: intent.tokenOut,
+                    encryptedAmount: intent.encryptedAmount
+                });
+            } catch (error) {
+                console.error(`Failed to fetch intent ${intentId}:`, error);
+            }
+        }
+        
+        // Batch decrypt all amounts using actual FHE decryption
+        console.log("\nDecrypting FHE encrypted amounts...");
+        const encryptedAmounts = intents.map(i => i.encryptedAmount);
+        const decryptedAmounts = await batchDecryptAmounts(encryptedAmounts);
+        
+        // Assign decrypted amounts to intents
+        intents.forEach((intent, index) => {
+            intent.decryptedAmount = decryptedAmounts[index];
+            console.log(`Intent ${index}: ${intent.user.slice(0,6)}... ${intent.tokenIn}->${intent.tokenOut}: ${intent.decryptedAmount}`);
+        });
+        
+        // Run FIFO matching algorithm
+        const { internalized, netSwaps } = matchIntents(intents);
+        
+        // Prepare settlement data - use arrays instead of objects for ABI encoding
+        // For internalized transfers, we need to encrypt the amounts for privacy
+        const internalizedTransfers = await Promise.all(internalized.map(async t => {
+            // Encrypt amounts for internalized transfers (for transferFromEncrypted)
+            const encryptedAmountA = await encryptAmount(t.amountA);
+            const encryptedAmountB = await encryptAmount(t.amountB);
+            
+            return [
+                t.intentIdA,
+                t.intentIdB,
+                t.userA,
+                t.userB,
+                t.tokenA,
+                t.tokenB,
+                encryptedAmountA,  // bytes - FHE encrypted for privacy
+                encryptedAmountB   // bytes - FHE encrypted for privacy
+            ];
+        }));
+        
+        // For simplicity, take the first net swap if exists
+        let netSwap = {
+            tokenIn: ethers.ZeroAddress,
+            tokenOut: ethers.ZeroAddress,
+            netAmount: 0n,
+            remainingIntents: [] as string[]
+        };
+        let hasNetSwap = false;
+        
+        if (netSwaps.size > 0) {
+            const firstNetSwap = netSwaps.values().next().value;
+            netSwap = firstNetSwap;
+            hasNetSwap = true;
+        }
+        
+        // Calculate totals
+        const totalInternalized = internalized.reduce((sum, t) => sum + t.amountA + t.amountB, 0n);
+        const totalNet = netSwap.netAmount;
+        
+        // Create settlement object for the contract
+        const settlement = {
+            batchId: batchId,
+            internalizedTransfers: internalizedTransfers,
+            netSwap: [netSwap.tokenIn, netSwap.tokenOut, netSwap.netAmount, netSwap.remainingIntents],
+            hasNetSwap: hasNetSwap,
+            totalInternalized: totalInternalized,
+            totalNet: totalNet
+        };
+        
+        // Create message hash and sign - encode as a single tuple
+        // TokenTransfer now uses bytes for encrypted amounts instead of uint256
+        const messageHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+            ["tuple(bytes32,tuple(bytes32,bytes32,address,address,address,address,bytes,bytes)[],tuple(address,address,uint256,bytes32[]),bool,uint256,uint256)"],
+            [[
+                batchId,
+                internalizedTransfers,
+                [netSwap.tokenIn, netSwap.tokenOut, netSwap.netAmount, netSwap.remainingIntents],
+                hasNetSwap,
+                totalInternalized,
+                totalNet
+            ]]
+        ));
+        
+        const messageBytes = ethers.getBytes(ethers.toBeHex(messageHash, 32));
+        const signature = await wallet.signMessage(messageBytes);
+        
+        console.log(`\nSubmitting settlement with ${internalized.length} internalized transfers...`);
+        
+        // Get current nonce to avoid conflicts
+        const nonce = await wallet.getNonce();
+        
+        // Submit settlement to SwapManager
+        // For testing, send the same signature 3 times to meet MIN_ATTESTATIONS requirement
+        const tx = await SwapManager.submitBatchSettlement(
+            settlement,
+            [signature, signature, signature], // In production, would collect signatures from multiple operators
+            { nonce }
         );
         
         await tx.wait();
-        console.log(`Successfully responded to task ${taskIndex}`);
+        console.log(`Successfully submitted settlement for batch ${batchId}`);
         console.log(`Transaction hash: ${tx.hash}`);
         
     } catch (error) {
-        console.error(`Error processing swap task ${taskIndex}:`, error);
+        console.error(`Error processing batch ${batchId}:`, error);
     }
 };
 
-const monitorNewTasks = async () => {
-    // Add error handler for the event listener
-    SwapManager.on("NewSwapTaskCreated", async (taskIndex: number, task: any) => {
-        console.log(`\n🚀 New swap task detected: Task ${taskIndex}`);
-        console.log(`- User: ${task.user}`);
-        console.log(`- TokenIn: ${task.tokenIn}`);
-        console.log(`- TokenOut: ${task.tokenOut}`);
-        console.log(`- Selected Operators: ${task.selectedOperators}`);
-        console.log(`- Task Created Block: ${task.taskCreatedBlock}`);
+const monitorBatches = async () => {
+    // Listen for BatchFinalized events
+    SwapManager.on("BatchFinalized", async (batchId: string, batchData: any) => {
+        console.log(`\n🚀 New batch detected: ${batchId}`);
         
-        // Check if this operator is selected for this task
-        const isSelected = task.selectedOperators.includes(wallet.address);
+        // Check if this operator is selected for this batch
+        const isSelected = await SwapManager.isOperatorSelectedForBatch(batchId, wallet.address);
+        
         if (isSelected) {
-            console.log("✅ This operator is selected for the task!");
-            // Decrypt and respond to the swap task
-            await decryptAndRespondToSwapTask(taskIndex, task, task.taskCreatedBlock);
+            console.log("✅ This operator is selected for the batch!");
+            // Process the batch
+            await processBatch(batchId, batchData);
         } else {
-            console.log("❌ This operator was not selected for this task");
+            console.log("❌ This operator was not selected for this batch");
         }
     });
-
-    console.log("Monitoring for new swap tasks...");
     
-    // Query past events to check if there are any we missed
+    console.log("Monitoring for new batches...");
+    
+    // Query past BatchFinalized events
     try {
-        const filter = SwapManager.filters.NewSwapTaskCreated();
+        const filter = SwapManager.filters.BatchFinalized();
         const currentBlock = await provider.getBlockNumber();
-        const fromBlock = Math.max(0, currentBlock - 100); // Look back 100 blocks
+        const fromBlock = Math.max(0, currentBlock - 100);
         const events = await SwapManager.queryFilter(filter, fromBlock, currentBlock);
         
         if (events.length > 0) {
-            console.log(`Found ${events.length} past NewSwapTaskCreated events in the last 100 blocks`);
+            console.log(`Found ${events.length} past BatchFinalized events in the last 100 blocks`);
             for (const event of events) {
                 const parsed = SwapManager.interface.parseLog(event);
                 if (parsed) {
-                    console.log(`Past event - Task ${parsed.args[0]}, Block: ${event.blockNumber}`);
+                    console.log(`Past batch: ${parsed.args[0]}, Block: ${event.blockNumber}`);
                 }
             }
         } else {
-            console.log("No past NewSwapTaskCreated events found in the last 100 blocks");
+            console.log("No past BatchFinalized events found in the last 100 blocks");
         }
     } catch (error) {
         console.error("Error querying past events:", error);
@@ -278,8 +459,8 @@ const main = async () => {
     await initializeCofheJs(wallet);
     
     await registerOperator();
-    monitorNewTasks().catch((error) => {
-        console.error("Error monitoring tasks:", error);
+    monitorBatches().catch((error) => {
+        console.error("Error monitoring batches:", error);
     });
 };
 

@@ -10,7 +10,7 @@
     "deploy:swap-manager": "cd contracts && forge script script/SwapManagerDeployer.s.sol --rpc-url http://localhost:8545 --broadcast --optimize --optimizer-runs 200 --via-ir",
     "deploy:mock-hook": "cd contracts && forge script script/DeployWithMockHook.s.sol --rpc-url http://localhost:8545 --broadcast",
     "deploy:cofhe-mocks": "cd contracts && forge script script/DeployCoFHEMocks.s.sol --rpc-url http://localhost:8545 --broadcast --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --unlocked",
-    "deploy:all": "npm run deploy:core && npm run deploy:swap-manager && npm run deploy:mock-hook && npm run deploy:cofhe-mocks && npm run setup:cofhe",
+    "deploy:all": "npm run build:forge && npm run deploy:core && npm run deploy:swap-manager && npm run deploy:mock-hook && npm run deploy:cofhe-mocks && npm run setup:cofhe && npm run extract:abis",
     "setup:cofhe": "node scripts/setup-cofhe-anvil.js",
     "deploy:core-debug": "cd contracts && forge script script/DeployEigenLayerCore.s.sol --rpc-url http://localhost:8545 --broadcast --revert-strings debug --optimize --optimizer-runs 200 --via-ir",
     "deploy:swap-manager-debug": "cd contracts && forge script script/SwapManagerDeployer.s.sol --rpc-url http://localhost:8545 --broadcast --revert-strings debug",
