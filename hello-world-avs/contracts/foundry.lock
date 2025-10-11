@@ -1,0 +1,8 @@
+{
+  "lib/eigenlayer-middleware": {
+    "rev": "4d63f27247587607beb67f96fdabec4b2c1321ef"
+  },
+  "lib/forge-std": {
+    "rev": "726a6ee5fc8427a0013d6f624e486c9130c0e336"
+  }
+}

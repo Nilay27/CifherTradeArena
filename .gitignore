@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+*/node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+*/dist/
+*/build/
+.next/
+*/.next/
+out/
+*/out/
+
+# Environment files
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+*/coverage/
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+*/tsconfig.tsbuildinfo
+
+# Package manager
+.pnpm-debug.log*
+pnpm-lock.yaml
+*/pnpm-lock.yaml
+
+# AVS specific (hello-world-avs)
+hello-world-avs/.forge-snapshots/
+hello-world-avs/lib/
+hello-world-avs/cache/
+hello-world-avs/broadcast/
+
+# Universal Privacy Hook specific
+universal-privacy-hook/cache/
+universal-privacy-hook/out/
+universal-privacy-hook/typechain-types/
