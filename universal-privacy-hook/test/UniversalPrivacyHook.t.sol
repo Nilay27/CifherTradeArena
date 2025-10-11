@@ -30,6 +30,10 @@ import {UniversalPrivacyHook} from "../src/privacy/UniversalPrivacyHook.sol";
 import {IFHERC20} from "../src/privacy/interfaces/IFHERC20.sol";
 import {HybridFHERC20} from "../src/privacy/HybridFHERC20.sol";
 
+// AVS Imports for testing integration
+import {ISwapManager} from "../src/privacy/interfaces/ISwapManager.sol";
+import {MockSwapManager} from "./mocks/MockSwapManager.sol";
+
 contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -43,6 +47,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
 
     // Contracts
     UniversalPrivacyHook hook;
+    MockSwapManager swapManager;
     MockERC20 usdc;
     MockERC20 usdt;
     PoolKey poolKey;
@@ -572,5 +577,82 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
         console.log("Alice deposited", DEPOSIT_AMOUNT / 1e6, "USDC in each pool");
         console.log("Alice swapped 400 USDC for WETH in Pool 2");
         console.log("Bob deposited 1 WETH in Pool 2");
+    }
+
+    function testSwapManagerIntegration() public {
+        console.log("Testing SwapManager AVS Integration");
+        
+        // Deploy mock AVS contracts (using simple addresses for mocks)
+        address mockDelegationManager = address(0x1111);
+        address mockAVSDirectory = address(0x2222);
+        address mockStakeRegistry = address(0x3333);
+        address mockAllocationManager = address(0x4444);
+        
+        // Deploy a minimal mock stake registry
+        MockStakeRegistry mockRegistry = new MockStakeRegistry();
+        vm.etch(mockStakeRegistry, address(mockRegistry).code);
+        
+        // Deploy MockSwapManager (simulating AVS)
+        swapManager = new MockSwapManager(
+            mockAVSDirectory,
+            mockStakeRegistry,
+            mockDelegationManager,
+            mockAllocationManager,
+            100 // MAX_RESPONSE_INTERVAL_BLOCKS
+        );
+        
+        // Initialize SwapManager
+        address owner = address(0x9999);
+        swapManager.initialize(owner, owner);
+        
+        // Set SwapManager in hook
+        hook.setSwapManager(address(swapManager));
+        
+        // Step 1: Alice deposits USDC
+        vm.prank(alice);
+        hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
+        
+        // Step 2: Get the task count before submitting
+        uint256 taskCountBefore = swapManager.getTaskCount();
+        console.log("Task count before submit:", taskCountBefore);
+        
+        // Step 3: Alice submits encrypted swap intent
+        vm.startPrank(alice);
+        InEuint128 memory encryptedSwapAmount = createInEuint128(uint128(SWAP_AMOUNT), alice);
+        
+        // This should trigger SwapManager.createNewSwapTask
+        hook.submitIntent(
+            poolKey,
+            Currency.wrap(address(usdc)),
+            Currency.wrap(address(usdt)),
+            encryptedSwapAmount,
+            uint64(block.timestamp + 1 hours)
+        );
+        vm.stopPrank();
+        
+        // Step 4: Verify SwapManager received the task
+        uint256 taskCountAfter = swapManager.getTaskCount();
+        console.log("Task count after submit:", taskCountAfter);
+        assertEq(taskCountAfter, taskCountBefore + 1, "Task count should increment");
+        
+        // Get the task hash and verify it was stored
+        bytes32 taskHash = swapManager.allTaskHashes(taskCountAfter);
+        assertTrue(taskHash != bytes32(0), "Task hash should be stored");
+        
+        console.log("[OK] Intent submitted to UniversalPrivacyHook");
+        console.log("[OK] SwapManager.createNewSwapTask was called");
+        console.log("[OK] Task created with index:", taskCountAfter);
+        console.log("[OK] Task hash:", uint256(taskHash));
+    }
+}
+
+// Mock stake registry for testing
+contract MockStakeRegistry {
+    function operatorRegistered(address) external pure returns (bool) {
+        return false;
+    }
+    
+    function getOperatorWeightAtBlock(address, uint32) external pure returns (uint256) {
+        return 0;
     }
 }
