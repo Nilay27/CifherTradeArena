@@ -39,6 +39,8 @@ import {Queue} from "../Queue.sol";
 
 // Token & Security
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 // FHE
@@ -443,9 +445,18 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         return poolIntentQueues[poolId];
     }
     
-    function _getCurrencySymbol(Currency currency) internal pure returns (string memory) {
-        // This is a placeholder - in real implementation would query token metadata
-        return "TOKEN";
+    function _getCurrencySymbol(Currency currency) internal view returns (string memory) {
+        // Try to get the symbol from the ERC20 token
+        try IERC20Metadata(Currency.unwrap(currency)).symbol() returns (string memory symbol) {
+            // Check if symbol is empty and return fallback
+            if (bytes(symbol).length == 0) {
+                return "TOKEN";
+            }
+            return symbol;
+        } catch {
+            // Fallback if token doesn't implement symbol()
+            return "TOKEN";
+        }
     }
     
     // =============================================================

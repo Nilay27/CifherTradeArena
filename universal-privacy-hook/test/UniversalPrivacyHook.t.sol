@@ -113,6 +113,102 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
         console.log("Pool created: USDC/USDT with UniversalPrivacyHook");
     }
 
+    function testEncryptedTokenMetadata() public {
+        console.log("Testing Encrypted Token Metadata Generation");
+        
+        // First deposit to trigger encrypted token creation
+        vm.prank(alice);
+        hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
+        
+        // Get the encrypted USDC token
+        IFHERC20 encryptedUSDC = hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdc)));
+        assertTrue(address(encryptedUSDC) != address(0), "Encrypted USDC token should be created");
+        
+        // Check the metadata of the encrypted token
+        string memory name = HybridFHERC20(address(encryptedUSDC)).name();
+        string memory symbol = HybridFHERC20(address(encryptedUSDC)).symbol();
+        uint8 decimals = HybridFHERC20(address(encryptedUSDC)).decimals();
+        
+        // Verify the name and symbol are correctly generated
+        assertEq(name, "Encrypted USDC", "Name should be 'Encrypted USDC'");
+        assertEq(symbol, "eUSDC", "Symbol should be 'eUSDC'");
+        assertEq(decimals, 18, "Decimals should be 18 for encrypted tokens");
+        
+        console.log("Encrypted token name:", name);
+        console.log("Encrypted token symbol:", symbol);
+        console.log("Encrypted token decimals:", decimals);
+        
+        // Now deposit USDT to test second token metadata
+        vm.prank(bob);
+        usdt.mint(bob, DEPOSIT_AMOUNT);
+        vm.prank(bob);
+        usdt.approve(address(hook), DEPOSIT_AMOUNT);
+        vm.prank(bob);
+        hook.deposit(poolKey, Currency.wrap(address(usdt)), DEPOSIT_AMOUNT);
+        
+        // Get the encrypted USDT token
+        IFHERC20 encryptedUSDT = hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdt)));
+        assertTrue(address(encryptedUSDT) != address(0), "Encrypted USDT token should be created");
+        
+        // Check the metadata of the encrypted USDT token
+        string memory nameUSDT = HybridFHERC20(address(encryptedUSDT)).name();
+        string memory symbolUSDT = HybridFHERC20(address(encryptedUSDT)).symbol();
+        uint8 decimalsUSDT = HybridFHERC20(address(encryptedUSDT)).decimals();
+        
+        // Verify the name and symbol are correctly generated for USDT
+        assertEq(nameUSDT, "Encrypted USDT", "Name should be 'Encrypted USDT'");
+        assertEq(symbolUSDT, "eUSDT", "Symbol should be 'eUSDT'");
+        assertEq(decimalsUSDT, 18, "Decimals should be 18 for encrypted tokens");
+        
+        console.log("Encrypted USDT token name:", nameUSDT);
+        console.log("Encrypted USDT token symbol:", symbolUSDT);
+        console.log("Encrypted USDT token decimals:", decimalsUSDT);
+    }
+
+    function testEncryptedTokenMetadataWithFallback() public {
+        console.log("Testing Encrypted Token Metadata with Fallback for Non-ERC20Metadata Tokens");
+        
+        // Create a mock token without metadata support
+        MockERC20 basicToken = new MockERC20("", "", 18); // Empty name/symbol
+        MockERC20 anotherToken = new MockERC20("Another", "ANTH", 18);
+        
+        // Create a new pool with the basic token
+        PoolKey memory testPoolKey = PoolKey(
+            Currency.wrap(address(basicToken)),
+            Currency.wrap(address(anotherToken)),
+            3000,
+            60,
+            IHooks(hook)
+        );
+        
+        // Initialize the pool
+        manager.initialize(testPoolKey, SQRT_PRICE_1_1);
+        
+        // Mint and approve tokens
+        basicToken.mint(alice, DEPOSIT_AMOUNT);
+        vm.prank(alice);
+        basicToken.approve(address(hook), DEPOSIT_AMOUNT);
+        
+        // Deposit to trigger encrypted token creation
+        vm.prank(alice);
+        hook.deposit(testPoolKey, Currency.wrap(address(basicToken)), DEPOSIT_AMOUNT);
+        
+        // Get the encrypted token
+        PoolId testPoolId = testPoolKey.toId();
+        IFHERC20 encryptedBasicToken = hook.poolEncryptedTokens(testPoolId, Currency.wrap(address(basicToken)));
+        
+        // Check metadata - should use fallback "TOKEN" when symbol() fails/returns empty
+        string memory symbol = HybridFHERC20(address(encryptedBasicToken)).symbol();
+        string memory name = HybridFHERC20(address(encryptedBasicToken)).name();
+        
+        // The symbol should be "eTOKEN" due to fallback
+        assertEq(symbol, "eTOKEN", "Symbol should fallback to 'eTOKEN' when token doesn't have proper metadata");
+        assertEq(name, "Encrypted TOKEN", "Name should fallback to 'Encrypted TOKEN'");
+        
+        console.log("Fallback encrypted token name:", name);
+        console.log("Fallback encrypted token symbol:", symbol);
+    }
+
     function testUserDeposit() public {
         console.log("Testing User Deposit Flow: USDC -> Encrypted USDC Tokens");
         
