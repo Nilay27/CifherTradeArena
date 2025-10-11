@@ -9,7 +9,8 @@ const contractsToExtract = [
   'IAVSDirectory',
   'IDelegationManager',
   'ECDSAStakeRegistry',
-  'SwapManager'
+  'SwapManager',
+  'ISwapManager'  // Also extract the interface ABI
 ];
 
 if (!fs.existsSync(abiDir)) {

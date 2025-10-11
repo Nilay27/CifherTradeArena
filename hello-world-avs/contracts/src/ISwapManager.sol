@@ -2,52 +2,77 @@
 pragma solidity ^0.8.9;
 
 interface ISwapManager {
-    // Events
-    event NewSwapTaskCreated(uint32 indexed taskIndex, SwapTask task);
-    event SwapTaskResponded(uint32 indexed taskIndex, SwapTask task, address operator, uint256 decryptedAmount);
-
-    // Structs
-    struct SwapTask {
-        address hook;           // Privacy hook contract address
-        address user;           // User submitting the swap
-        address tokenIn;        // Token being swapped from
-        address tokenOut;       // Token being swapped to
-        bytes encryptedAmount;  // FHE encrypted swap amount
-        uint64 deadline;        // Swap deadline
-        uint32 taskCreatedBlock;
-        address[] selectedOperators; // Operators selected for decryption
+    // Structures matching the hook's interface
+    struct TokenTransfer {
+        address user;
+        address token;
+        bytes encryptedAmount; // Still encrypted for AVS to handle
+    }
+    
+    struct NetSwap {
+        address tokenIn;
+        address tokenOut;
+        uint256 netAmount; // Decrypted by AVS
+        bool isZeroForOne;
+        address[] recipients;
+        bytes[] encryptedRecipientAmounts; // Still encrypted
+    }
+    
+    struct BatchSettlement {
+        bytes32 batchId;
+        TokenTransfer[] internalizedTransfers;
+        NetSwap netSwap;
+        bool hasNetSwap;
+        uint256 totalInternalized;
+        uint256 totalNet;
+    }
+    
+    struct Batch {
+        bytes32 batchId;
+        bytes32[] intentIds;
+        address poolId;
+        address hook;
+        uint32 createdBlock;
+        uint32 finalizedBlock;
+        BatchStatus status;
+    }
+    
+    struct Intent {
+        address user;
+        address tokenIn;
+        address tokenOut;
+        bytes encryptedAmount;
+        uint64 deadline;
+    }
+    
+    enum BatchStatus {
+        Collecting,
+        Processing,
+        Settled,
+        Failed
     }
 
+    // Events
+    event BatchCreated(bytes32 indexed batchId, uint256 intentCount);
+    event BatchFinalized(bytes32 indexed batchId, bytes batchData);
+    event BatchSettlementSubmitted(bytes32 indexed batchId, uint256 matchCount, uint256 netCount);
+    event BatchSettled(bytes32 indexed batchId, bool success);
+    event OperatorSelectedForBatch(bytes32 indexed batchId, address operator);
+
+    // Called by hook when batch is ready for processing
+    function finalizeBatch(
+        bytes32 batchId,
+        bytes calldata batchData // Encoded intent data for operators
+    ) external;
+    
+    // Called by operators after matching
+    function submitBatchSettlement(
+        BatchSettlement calldata settlement,
+        bytes[] calldata operatorSignatures
+    ) external;
+    
     // View functions
-    function latestTaskNum() external view returns (uint32);
-    
-    function allTaskHashes(uint32 taskIndex) external view returns (bytes32);
-    
-    function allTaskResponses(address operator, uint32 taskIndex) external view returns (bytes memory);
-    
-    function getTask(uint32 taskIndex) external view returns (SwapTask memory);
-    
+    function getBatch(bytes32 batchId) external view returns (Batch memory);
     function getOperatorCount() external view returns (uint256);
-
-    // Core functions
-    function createNewSwapTask(
-        address user,
-        address tokenIn,
-        address tokenOut,
-        bytes calldata encryptedAmount,
-        uint64 deadline
-    ) external returns (SwapTask memory);
-
-    function respondToSwapTask(
-        SwapTask calldata task,
-        uint32 referenceTaskIndex,
-        uint256 decryptedAmount,
-        bytes calldata signature
-    ) external;
-
-    function slashOperator(
-        SwapTask calldata task,
-        uint32 referenceTaskIndex,
-        address operator
-    ) external;
+    function isOperatorSelectedForBatch(bytes32 batchId, address operator) external view returns (bool);
 }
