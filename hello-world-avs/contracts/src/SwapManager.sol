@@ -24,6 +24,15 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
     using ECDSAUpgradeable for bytes32;
 
     uint32 public latestTaskNum;
+    
+    // Committee configuration
+    uint256 public constant COMMITTEE_SIZE = 7; // Number of operators per task
+    uint256 public constant MIN_ATTESTATIONS = 5; // Minimum attestations needed
+    
+    // Track registered operators for selection
+    address[] public registeredOperators;
+    mapping(address => bool) public isOperatorRegistered;
+    mapping(address => uint256) public operatorIndex;
 
     // mapping of task indices to all tasks hashes
     // when a task is created, task hash is stored here,
@@ -110,6 +119,9 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         bytes calldata encryptedAmount,
         uint64 deadline
     ) external returns (SwapTask memory) {
+        // Deterministically select operators for this task
+        address[] memory selectedOps = _selectOperatorsForTask(latestTaskNum);
+        
         // create a new swap task struct
         SwapTask memory newTask;
         newTask.hook = msg.sender; // Privacy hook is the caller
@@ -119,6 +131,7 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         newTask.encryptedAmount = encryptedAmount;
         newTask.deadline = deadline;
         newTask.taskCreatedBlock = uint32(block.number);
+        newTask.selectedOperators = selectedOps;
 
         // store hash of task onchain, emit event, and increase taskNum
         allTaskHashes[latestTaskNum] = keccak256(abi.encode(newTask));
@@ -126,6 +139,78 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         latestTaskNum = latestTaskNum + 1;
 
         return newTask;
+    }
+    
+    /**
+     * @notice Register an operator for task selection
+     * @dev Operator must already be registered with ECDSAStakeRegistry
+     */
+    function registerOperatorForTasks() external {
+        require(
+            ECDSAStakeRegistry(stakeRegistry).operatorRegistered(msg.sender),
+            "Must be registered with stake registry first"
+        );
+        require(!isOperatorRegistered[msg.sender], "Operator already registered");
+        
+        isOperatorRegistered[msg.sender] = true;
+        operatorIndex[msg.sender] = registeredOperators.length;
+        registeredOperators.push(msg.sender);
+    }
+    
+    /**
+     * @notice Deregister an operator from task selection
+     */
+    function deregisterOperatorFromTasks() external {
+        require(isOperatorRegistered[msg.sender], "Operator not registered");
+        
+        // Remove operator by swapping with last and popping
+        uint256 index = operatorIndex[msg.sender];
+        uint256 lastIndex = registeredOperators.length - 1;
+        
+        if (index != lastIndex) {
+            address lastOperator = registeredOperators[lastIndex];
+            registeredOperators[index] = lastOperator;
+            operatorIndex[lastOperator] = index;
+        }
+        
+        registeredOperators.pop();
+        delete operatorIndex[msg.sender];
+        isOperatorRegistered[msg.sender] = false;
+    }
+    
+    /**
+     * @notice Deterministically select operators for a task using native randomness
+     * @param taskId The task ID to select operators for
+     * @return selectedOps Array of selected operator addresses
+     */
+    function _selectOperatorsForTask(uint32 taskId) internal view returns (address[] memory) {
+        uint256 operatorCount = registeredOperators.length;
+        
+        // If not enough operators, return all available operators
+        if (operatorCount < COMMITTEE_SIZE) {
+            return registeredOperators;
+        }
+        
+        // Use block.prevrandao + block.number + taskId for deterministic randomness
+        uint256 seed = uint256(keccak256(abi.encode(block.prevrandao, block.number, taskId)));
+        
+        address[] memory selectedOps = new address[](COMMITTEE_SIZE);
+        bool[] memory selected = new bool[](operatorCount);
+        
+        for (uint256 i = 0; i < COMMITTEE_SIZE; i++) {
+            // Generate new random index
+            uint256 randomIndex = uint256(keccak256(abi.encode(seed, i))) % operatorCount;
+            
+            // Find next available operator (linear probing to avoid duplicates)
+            while (selected[randomIndex]) {
+                randomIndex = (randomIndex + 1) % operatorCount;
+            }
+            
+            selected[randomIndex] = true;
+            selectedOps[i] = registeredOperators[randomIndex];
+        }
+        
+        return selectedOps;
     }
 
     function respondToSwapTask(
@@ -212,5 +297,16 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         allTaskResponses[operator][referenceTaskIndex] = "slashed";
 
         // TODO: slash operator
+    }
+    
+    function getTask(uint32 taskIndex) external view returns (SwapTask memory) {
+        // For testing, return a dummy task
+        // In production, you'd store and retrieve the full task
+        SwapTask memory task;
+        return task;
+    }
+    
+    function getOperatorCount() external view returns (uint256) {
+        return registeredOperators.length;
     }
 }

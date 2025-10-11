@@ -24,6 +24,7 @@ import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 // FHE Imports  
 import {FHE, InEuint128, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
+import {ACL} from "@fhenixprotocol/cofhe-mock-contracts/ACL.sol";
 
 // Privacy Hook Imports
 import {UniversalPrivacyHook} from "../src/privacy/UniversalPrivacyHook.sol";
@@ -643,6 +644,85 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
         console.log("[OK] SwapManager.createNewSwapTask was called");
         console.log("[OK] Task created with index:", taskCountAfter);
         console.log("[OK] Task hash:", uint256(taskHash));
+    }
+    
+    function testOperatorBasedDecryption() public {
+        console.log("Testing Operator-Based FHE Decryption");
+        
+        // Deploy mock AVS contracts
+        address mockDelegationManager = address(0x1111);
+        address mockAVSDirectory = address(0x2222);
+        address mockStakeRegistry = address(0x3333);
+        address mockAllocationManager = address(0x4444);
+        
+        // Deploy MockSwapManager
+        swapManager = new MockSwapManager(
+            mockAVSDirectory,
+            mockStakeRegistry,
+            mockDelegationManager,
+            mockAllocationManager,
+            100
+        );
+        
+        // Initialize and set SwapManager
+        swapManager.initialize(address(0x9999), address(0x9999));
+        hook.setSwapManager(address(swapManager));
+        
+        // Alice deposits USDC
+        vm.prank(alice);
+        hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
+        
+        // Alice submits encrypted swap intent
+        vm.startPrank(alice);
+        InEuint128 memory encryptedSwapAmount = createInEuint128(uint128(SWAP_AMOUNT), alice);
+        
+        // Submit intent - this should grant access to selected operators
+        hook.submitIntent(
+            poolKey,
+            Currency.wrap(address(usdc)),
+            Currency.wrap(address(usdt)),
+            encryptedSwapAmount,
+            uint64(block.timestamp + 1 hours)
+        );
+        vm.stopPrank();
+        
+        // Get the created task
+        ISwapManager.SwapTask memory task = swapManager.getTask(1);
+        
+        // Verify operators were selected
+        assertEq(task.selectedOperators.length, 3, "Should have 3 selected operators");
+        console.log("Selected operators:");
+        for (uint i = 0; i < task.selectedOperators.length; i++) {
+            console.log("-", task.selectedOperators[i]);
+        }
+        
+        // Verify the encrypted amount was stored
+        assertTrue(task.encryptedAmount.length > 0, "Encrypted amount should be stored");
+        
+        // Decode the encrypted handle from the task's encrypted amount
+        uint256 encryptedHandle = abi.decode(task.encryptedAmount, (uint256));
+        console.log("Encrypted handle:", encryptedHandle);
+        
+        // Get the ACL contract to check permissions
+        ACL aclContract = ACL(ACL_ADDRESS);
+        
+        // Verify that selected operators have access to decrypt
+        console.log("Checking operator decryption access:");
+        for (uint i = 0; i < task.selectedOperators.length; i++) {
+            bool hasAccess = aclContract.isAllowed(encryptedHandle, task.selectedOperators[i]);
+            console.log("- Operator", task.selectedOperators[i], "has access:", hasAccess);
+            assertTrue(hasAccess, "Selected operator should have decryption access");
+        }
+        
+        // Verify that non-selected operators don't have access
+        address randomOperator = address(0xBEEF);
+        bool randomHasAccess = aclContract.isAllowed(encryptedHandle, randomOperator);
+        console.log("Random operator", randomOperator, "has access:", randomHasAccess);
+        assertFalse(randomHasAccess, "Non-selected operator should NOT have access");
+        
+        console.log("[OK] Operators selected for decryption");
+        console.log("[OK] FHE access granted to committee");
+        console.log("[OK] Access control verified - only selected operators can decrypt");
     }
 }
 

@@ -14,6 +14,7 @@ interface ISwapManager {
         bytes encryptedAmount;
         uint64 deadline;
         uint32 taskCreatedBlock;
+        address[] selectedOperators; // Operators selected for this task
     }
     
     function createNewSwapTask(

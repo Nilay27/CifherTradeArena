@@ -14,7 +14,7 @@ solmate/=node_modules/@uniswap/v4-core/lib/solmate/
 
 hardhat/=node_modules/hardhat/
 
-@hello-world-avs/=../hello-world-avs/contracts/src/
-@eigenlayer-middleware/src/=../hello-world-avs/contracts/lib/eigenlayer-middleware/src/
-@eigenlayer/contracts/=../hello-world-avs/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/
-@openzeppelin-upgrades/contracts/=../hello-world-avs/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-upgradeable-v4.9.0/contracts/
+@swap-manager-avs/=../swap-manager-avs/contracts/src/
+@eigenlayer-middleware/src/=../swap-manager-avs/contracts/lib/eigenlayer-middleware/src/
+@eigenlayer/contracts/=../swap-manager-avs/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/
+@openzeppelin-upgrades/contracts/=../swap-manager-avs/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-upgradeable-v4.9.0/contracts/

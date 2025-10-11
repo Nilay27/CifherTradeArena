@@ -84,6 +84,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         address owner;           // User who submitted the intent
         uint64 deadline;         // Expiration timestamp
         bool processed;          // Whether intent has been executed
+        address[] selectedOperators; // Operators allowed to decrypt this intent
     }
 
     // =============================================================
@@ -244,8 +245,28 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         // Transfer encrypted tokens from user to hook as collateral
         inputToken.transferFromEncrypted(msg.sender, address(this), amount);
         
-        // Start FHE decryption process for swap amount
-        FHE.decrypt(amount);
+        // Get selected operators from AVS (if SwapManager is set)
+        address[] memory selectedOperators;
+        if (address(swapManager) != address(0)) {
+            // Create swap task and get selected operators
+            ISwapManager.SwapTask memory task = ISwapManager(swapManager).createNewSwapTask(
+                msg.sender,
+                Currency.unwrap(tokenIn),
+                Currency.unwrap(tokenOut),
+                abi.encode(euint128.unwrap(amount)),
+                deadline
+            );
+            selectedOperators = task.selectedOperators;
+            
+            // Grant decryption access to selected operators
+            for (uint256 i = 0; i < selectedOperators.length; i++) {
+                FHE.allow(amount, selectedOperators[i]);
+            }
+        } else {
+            // Fallback: If no SwapManager, use centralized decryption
+            FHE.decrypt(amount);
+            selectedOperators = new address[](0);
+        }
         
         // Create and store intent
         bytes32 intentId = keccak256(abi.encode(msg.sender, block.timestamp, poolId));
@@ -255,7 +276,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             tokenOut: tokenOut,
             owner: msg.sender,
             deadline: deadline,
-            processed: false
+            processed: false,
+            selectedOperators: selectedOperators
         });
         
         // Store the handle-to-intent mapping (like MarketOrder's userOrders)
@@ -265,21 +287,6 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         // Add encrypted amount to pool's intent queue (like MarketOrder pattern)
         Queue queue = _getOrCreateQueue(poolId);
         queue.push(amount);
-        
-        // Submit task to AVS for decentralized FHE decryption (if SwapManager is set)
-        if (address(swapManager) != address(0)) {
-            // Convert encrypted amount to bytes for AVS
-            bytes memory encryptedAmountBytes = abi.encode(euint128.unwrap(amount));
-            
-            // Create swap task on AVS
-            swapManager.createNewSwapTask(
-                msg.sender,
-                Currency.unwrap(tokenIn),
-                Currency.unwrap(tokenOut),
-                encryptedAmountBytes,
-                deadline
-            );
-        }
         
         emit IntentSubmitted(poolId, tokenIn, tokenOut, msg.sender, intentId);
     }

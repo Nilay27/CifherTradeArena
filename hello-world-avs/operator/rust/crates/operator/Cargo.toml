@@ -1,5 +1,5 @@
 [package]
-name = "hello-world-avs-operator"
+name = "swap-manager-avs-operator"
 description = "Hello world avs operator start and spam utilities"
 
 version.workspace = true
@@ -21,7 +21,7 @@ testcontainers = "0.23"
 #eigensdk-rs
 eigensdk.workspace = true
 
-hello-world-utils.workspace = true
+swap-manager-utils.workspace = true
 
 #misc 
 dotenv = "0.15.0"

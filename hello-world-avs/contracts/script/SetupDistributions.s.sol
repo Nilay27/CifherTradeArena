@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {Script} from "forge-std/Script.sol";
-import {HelloWorldDeploymentLib} from "./utils/HelloWorldDeploymentLib.sol";
+import {SwapManagerDeploymentLib} from "./utils/SwapManagerDeploymentLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./utils/CoreDeploymentParsingLib.sol";
 import {SetupDistributionsLib} from "./utils/SetupDistributionsLib.sol";
 import {IRewardsCoordinator} from "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
@@ -27,8 +27,8 @@ contract SetupDistributions is Script, Test {
     CoreDeployLib.DeploymentData coreDeployment;
     CoreDeployLib.DeploymentConfigData coreConfig;
 
-    HelloWorldDeploymentLib.DeploymentData helloWorldDeployment;
-    HelloWorldDeploymentLib.DeploymentConfigData helloWorldConfig;
+    SwapManagerDeploymentLib.DeploymentData swapManagerDeployment;
+    SwapManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
 
     RewardsCoordinator rewardsCoordinator;
     string internal constant paymentInfofilePath = "test/mockData/scratch/payment_info.json";
@@ -65,10 +65,10 @@ contract SetupDistributions is Script, Test {
             CoreDeploymentParsingLib.readDeploymentJson("deployments/core/", block.chainid);
         coreConfig =
             CoreDeploymentParsingLib.readDeploymentConfigValues("config/core/", block.chainid);
-        helloWorldDeployment =
-            HelloWorldDeploymentLib.readDeploymentJson("deployments/hello-world/", block.chainid);
-        helloWorldConfig =
-            HelloWorldDeploymentLib.readDeploymentConfigValues("config/hello-world/", block.chainid);
+        swapManagerDeployment =
+            SwapManagerDeploymentLib.readDeploymentJson("deployments/swap-manager/", block.chainid);
+        swapManagerConfig =
+            SwapManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
 
         rewardsCoordinator = RewardsCoordinator(coreDeployment.rewardsCoordinator);
 
@@ -76,7 +76,7 @@ contract SetupDistributions is Script, Test {
     }
 
     function run() external {
-        vm.startBroadcast(helloWorldConfig.rewardsInitiatorKey);
+        vm.startBroadcast(swapManagerConfig.rewardsInitiatorKey);
 
         // Go back 4 days
         uint256 targetStartTimestamp = block.timestamp - 4 days;
@@ -106,7 +106,7 @@ contract SetupDistributions is Script, Test {
     }
 
     function runOperatorDirected() external {
-        vm.startBroadcast(helloWorldConfig.rewardsInitiatorKey);
+        vm.startBroadcast(swapManagerConfig.rewardsInitiatorKey);
 
         // Go back 4 days
         uint256 targetStartTimestamp = block.timestamp - 4 days;
@@ -143,7 +143,7 @@ contract SetupDistributions is Script, Test {
 
         vm.startBroadcast(deployer);
         earnerLeaves =
-            _getEarnerLeaves(_getEarners(deployer), amountPerPayment, helloWorldDeployment.strategy);
+            _getEarnerLeaves(_getEarners(deployer), amountPerPayment, swapManagerDeployment.strategy);
         processClaim(
             filePath, indexToProve, recipient, earnerLeaves[indexToProve], amountPerPayment
         );
@@ -155,16 +155,16 @@ contract SetupDistributions is Script, Test {
         uint256 _amountPerPayment,
         uint32 _startTimestamp
     ) public {
-        ERC20Mock(helloWorldDeployment.token).mint(
-            helloWorldConfig.rewardsInitiator, _amountPerPayment * _numPayments
+        ERC20Mock(swapManagerDeployment.token).mint(
+            swapManagerConfig.rewardsInitiator, _amountPerPayment * _numPayments
         );
-        ERC20Mock(helloWorldDeployment.token).increaseAllowance(
-            helloWorldDeployment.SwapManager, _amountPerPayment * _numPayments
+        ERC20Mock(swapManagerDeployment.token).increaseAllowance(
+            swapManagerDeployment.SwapManager, _amountPerPayment * _numPayments
         );
         uint32 duration = rewardsCoordinator.MAX_REWARDS_DURATION();
         SetupDistributionsLib.createAVSRewardsSubmissions(
-            helloWorldDeployment.SwapManager,
-            helloWorldDeployment.strategy,
+            swapManagerDeployment.SwapManager,
+            swapManagerDeployment.strategy,
             _numPayments,
             _amountPerPayment,
             duration,
@@ -178,20 +178,20 @@ contract SetupDistributions is Script, Test {
         uint32 _startTimestamp,
         uint32 duration
     ) public {
-        ERC20Mock(helloWorldDeployment.token).mint(
-            helloWorldConfig.rewardsInitiator, _amountPerPayment * _numPayments
+        ERC20Mock(swapManagerDeployment.token).mint(
+            swapManagerConfig.rewardsInitiator, _amountPerPayment * _numPayments
         );
-        ERC20Mock(helloWorldDeployment.token).increaseAllowance(
-            helloWorldDeployment.SwapManager, _amountPerPayment * _numPayments
+        ERC20Mock(swapManagerDeployment.token).increaseAllowance(
+            swapManagerDeployment.SwapManager, _amountPerPayment * _numPayments
         );
         address[] memory operators = new address[](2);
         operators[0] = operator1;
         operators[1] = operator2;
 
         SetupDistributionsLib.createOperatorDirectedAVSRewardsSubmissions(
-            helloWorldDeployment.SwapManager,
+            swapManagerDeployment.SwapManager,
             operators,
-            helloWorldDeployment.strategy,
+            swapManagerDeployment.strategy,
             _numPayments,
             _amountPerPayment,
             duration,
@@ -213,7 +213,7 @@ contract SetupDistributions is Script, Test {
             _recipient,
             _earnerLeaf,
             NUM_TOKEN_EARNINGS,
-            helloWorldDeployment.strategy,
+            swapManagerDeployment.strategy,
             _amountPerPayment
         );
     }
@@ -229,7 +229,7 @@ contract SetupDistributions is Script, Test {
             IRewardsCoordinator(coreDeployment.rewardsCoordinator),
             NUM_TOKEN_EARNINGS,
             _amountPerPayment,
-            helloWorldDeployment.strategy
+            swapManagerDeployment.strategy
         );
         IRewardsCoordinator.EarnerTreeMerkleLeaf[] memory _earnerLeaves =
             SetupDistributionsLib.createEarnerLeaves(_earners, tokenLeaves);

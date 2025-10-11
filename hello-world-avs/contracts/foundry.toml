@@ -13,6 +13,7 @@ remappings = [
     "@eigenlayer-middleware/=lib/eigenlayer-middleware/",
     "@openzeppelin/=lib/eigenlayer-middleware/lib/openzeppelin-contracts/",
     "@openzeppelin-upgrades/=lib/eigenlayer-middleware/lib/openzeppelin-contracts-upgradeable/",
+    "@fhenixprotocol/=lib/fhenix-contracts/",
     "forge-std/=lib/forge-std/src/",
 ]
 

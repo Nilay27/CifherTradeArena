@@ -23,21 +23,21 @@ async function loadJsonFile(filePath: string): Promise<any> {
 
 async function loadDeployments(): Promise<Record<string, any>> {
   const coreFilePath = path.join(__dirname, '..', 'contracts', 'deployments', 'core', '31337.json');
-  const helloWorldFilePath = path.join(__dirname, '..', 'contracts', 'deployments', 'hello-world', '31337.json');
+  const swapManagerFilePath = path.join(__dirname, '..', 'contracts', 'deployments', 'swap-manager', '31337.json');
 
-  const [coreDeployment, helloWorldDeployment] = await Promise.all([
+  const [coreDeployment, swapManagerDeployment] = await Promise.all([
     loadJsonFile(coreFilePath),
-    loadJsonFile(helloWorldFilePath)
+    loadJsonFile(swapManagerFilePath)
   ]);
 
-  if (!coreDeployment || !helloWorldDeployment) {
+  if (!coreDeployment || !swapManagerDeployment) {
     console.error('Error loading deployments');
     return {};
   }
 
   return {
     core: coreDeployment,
-    helloWorld: helloWorldDeployment
+    swapManager: swapManagerDeployment
   };
 }
 
@@ -55,7 +55,7 @@ describe('Operator Functionality', () => {
     anvil = createAnvil();
     await anvil.start();
     await execAsync('npm run deploy:core');
-    await execAsync('npm run deploy:hello-world');
+    await execAsync('npm run deploy:swap-manager');
     deployment = await loadDeployments();
 
     provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
@@ -67,8 +67,8 @@ describe('Operator Functionality', () => {
     const avsDirectoryABI = await loadJsonFile(path.join(__dirname, '..', 'abis', 'IAVSDirectory.json'));
 
     delegationManager = new ethers.Contract(deployment.core.addresses.delegationManager, delegationManagerABI, signer);
-    SwapManager = new ethers.Contract(deployment.helloWorld.addresses.SwapManager, SwapManagerABI, signer);
-    ecdsaRegistryContract = new ethers.Contract(deployment.helloWorld.addresses.stakeRegistry, ecdsaRegistryABI, signer);
+    SwapManager = new ethers.Contract(deployment.swapManager.addresses.SwapManager, SwapManagerABI, signer);
+    ecdsaRegistryContract = new ethers.Contract(deployment.swapManager.addresses.stakeRegistry, ecdsaRegistryABI, signer);
     avsDirectory = new ethers.Contract(deployment.core.addresses.avsDirectory, avsDirectoryABI, signer);
   });
 

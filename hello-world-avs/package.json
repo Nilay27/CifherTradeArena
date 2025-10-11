@@ -1,15 +1,16 @@
 {
-  "name": "hello-world-avs",
+  "name": "swap-manager-avs",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start:operator": "ts-node operator/index.ts",
-    "start:traffic": "ts-node operator/createNewTasks.ts",
+    "start:traffic": "ts-node operator/createEncryptedSwapTasks.ts",
     "start:anvil": "anvil",
     "deploy:core": "cd contracts && forge script script/DeployEigenLayerCore.s.sol --rpc-url http://localhost:8545 --broadcast --optimize --optimizer-runs 200 --via-ir",
-    "deploy:hello-world": "cd contracts && forge script script/HelloWorldDeployer.s.sol --rpc-url http://localhost:8545 --broadcast --optimize --optimizer-runs 200 --via-ir",
+    "deploy:swap-manager": "cd contracts && forge script script/SwapManagerDeployer.s.sol --rpc-url http://localhost:8545 --broadcast --optimize --optimizer-runs 200 --via-ir",
+    "deploy:mock-hook": "cd contracts && forge script script/DeployWithMockHook.s.sol --rpc-url http://localhost:8545 --broadcast",
     "deploy:core-debug": "cd contracts && forge script script/DeployEigenLayerCore.s.sol --rpc-url http://localhost:8545 --broadcast --revert-strings debug --optimize --optimizer-runs 200 --via-ir",
-    "deploy:hello-world-debug": "cd contracts && forge script script/HelloWorldDeployer.s.sol --rpc-url http://localhost:8545 --broadcast --revert-strings debug",
+    "deploy:swap-manager-debug": "cd contracts && forge script script/SwapManagerDeployer.s.sol --rpc-url http://localhost:8545 --broadcast --revert-strings debug",
     "create-distributions-root": "cd contracts && forge script script/SetupDistributions.s.sol --rpc-url http://localhost:8545 --broadcast -v --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
     "claim-distributions": "cd contracts && forge script script/SetupDistributions.s.sol --rpc-url http://localhost:8545 --broadcast --sig \"executeProcessClaim()\" -v --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
     "create-operator-directed-distributions-root": "cd contracts && forge script script/SetupDistributions.s.sol --rpc-url http://localhost:8545 --broadcast --sig \"runOperatorDirected()\" -v --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
@@ -19,6 +20,8 @@
     "test": "NODE_OPTIONS=\"$NODE_OPTIONS --experimental-vm-modules\" npx jest"
   },
   "dependencies": {
+    "bignumber.js": "^9.3.1",
+    "cofhejs": "^0.2.1-alpha.1",
     "dotenv": "^10.0.0",
     "ethers": "^6.13.2"
   },

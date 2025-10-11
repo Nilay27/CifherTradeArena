@@ -6,7 +6,7 @@ import {MockAVSDeployer} from "@eigenlayer-middleware/test/utils/MockAVSDeployer
 import {ECDSAStakeRegistry} from "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/Test.sol";
-import {HelloWorldDeploymentLib} from "../script/utils/HelloWorldDeploymentLib.sol";
+import {SwapManagerDeploymentLib} from "../script/utils/SwapManagerDeploymentLib.sol";
 import {
     CoreDeployLib, CoreDeploymentParsingLib
 } from "../script/utils/CoreDeploymentParsingLib.sol";
@@ -33,7 +33,7 @@ import {ISwapManager} from "../src/ISwapManager.sol";
 import {ECDSAUpgradeable} from
     "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
 
-contract HelloWorldTaskManagerSetup is Test {
+contract SwapManagerTaskManagerSetup is Test {
     // used for `toEthSignedMessageHash`
     using ECDSAUpgradeable for bytes32;
 
@@ -56,7 +56,7 @@ contract HelloWorldTaskManagerSetup is Test {
     TrafficGenerator internal generator;
     AVSOwner internal owner;
 
-    HelloWorldDeploymentLib.DeploymentData internal helloWorldDeployment;
+    SwapManagerDeploymentLib.DeploymentData internal swapManagerDeployment;
     CoreDeployLib.DeploymentData internal coreDeployment;
     CoreDeployLib.DeploymentConfigData coreConfigData;
 
@@ -88,12 +88,12 @@ contract HelloWorldTaskManagerSetup is Test {
             IECDSAStakeRegistryTypes.StrategyParams({strategy: strategy, multiplier: 10_000})
         );
 
-        helloWorldDeployment = HelloWorldDeploymentLib.deployContracts(
+        swapManagerDeployment = SwapManagerDeploymentLib.deployContracts(
             proxyAdmin, coreDeployment, quorum, owner.key.addr, owner.key.addr
         );
-        helloWorldDeployment.strategy = address(strategy);
-        helloWorldDeployment.token = address(mockToken);
-        labelContracts(coreDeployment, helloWorldDeployment);
+        swapManagerDeployment.strategy = address(strategy);
+        swapManagerDeployment.token = address(mockToken);
+        labelContracts(coreDeployment, swapManagerDeployment);
     }
 
     function addStrategy(
@@ -111,7 +111,7 @@ contract HelloWorldTaskManagerSetup is Test {
 
     function labelContracts(
         CoreDeployLib.DeploymentData memory _coreDeployment,
-        HelloWorldDeploymentLib.DeploymentData memory _helloWorldDeployment
+        SwapManagerDeploymentLib.DeploymentData memory _swapManagerDeployment
     ) internal {
         vm.label(_coreDeployment.delegationManager, "DelegationManager");
         vm.label(_coreDeployment.avsDirectory, "AVSDirectory");
@@ -122,8 +122,8 @@ contract HelloWorldTaskManagerSetup is Test {
         vm.label(_coreDeployment.pauserRegistry, "PauserRegistry");
         vm.label(_coreDeployment.strategyFactory, "StrategyFactory");
         vm.label(_coreDeployment.strategyBeacon, "StrategyBeacon");
-        vm.label(_helloWorldDeployment.SwapManager, "SwapManager");
-        vm.label(_helloWorldDeployment.stakeRegistry, "StakeRegistry");
+        vm.label(_swapManagerDeployment.SwapManager, "SwapManager");
+        vm.label(_swapManagerDeployment.stakeRegistry, "StakeRegistry");
     }
 
     function signWithOperatorKey(
@@ -175,7 +175,7 @@ contract HelloWorldTaskManagerSetup is Test {
     function registerOperatorToAVS(
         Operator memory operator
     ) internal {
-        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
         AVSDirectory avsDirectory = AVSDirectory(coreDeployment.avsDirectory);
 
         bytes32 salt = keccak256(abi.encodePacked(block.timestamp, operator.key.addr));
@@ -183,7 +183,7 @@ contract HelloWorldTaskManagerSetup is Test {
 
         bytes32 operatorRegistrationDigestHash = avsDirectory
             .calculateOperatorAVSRegistrationDigestHash(
-            operator.key.addr, address(helloWorldDeployment.SwapManager), salt, expiry
+            operator.key.addr, address(swapManagerDeployment.SwapManager), salt, expiry
         );
 
         bytes memory signature = signWithOperatorKey(operator, operatorRegistrationDigestHash);
@@ -202,7 +202,7 @@ contract HelloWorldTaskManagerSetup is Test {
     function deregisterOperatorFromAVS(
         Operator memory operator
     ) internal {
-        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
 
         vm.prank(operator.key.addr);
         stakeRegistry.deregisterOperator();
@@ -223,7 +223,7 @@ contract HelloWorldTaskManagerSetup is Test {
     function updateOperatorWeights(
         Operator[] memory _operators
     ) internal {
-        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
 
         address[] memory operatorAddresses = new address[](_operators.length);
         for (uint256 i = 0; i < _operators.length; i++) {
@@ -263,7 +263,7 @@ contract HelloWorldTaskManagerSetup is Test {
         string memory taskName
     ) internal returns (ISwapManager.Task memory task, uint32 taskIndex) {
         ISwapManager SwapManager =
-            ISwapManager(helloWorldDeployment.SwapManager);
+            ISwapManager(swapManagerDeployment.SwapManager);
 
         vm.prank(generator.key.addr);
         taskIndex = SwapManager.latestTaskNum();
@@ -278,7 +278,7 @@ contract HelloWorldTaskManagerSetup is Test {
     ) internal {
         bytes memory signedResponse = makeTaskResponse(operatorsMem, task);
 
-        ISwapManager(helloWorldDeployment.SwapManager).respondToTask(
+        ISwapManager(swapManagerDeployment.SwapManager).respondToTask(
             task, referenceTaskIndex, signedResponse
         );
     }
@@ -309,15 +309,15 @@ contract HelloWorldTaskManagerSetup is Test {
         uint32 referenceTaskIndex,
         address operator
     ) internal {
-        ISwapManager(helloWorldDeployment.SwapManager).slashOperator(
+        ISwapManager(swapManagerDeployment.SwapManager).slashOperator(
             task, referenceTaskIndex, operator
         );
     }
 }
 
-contract SwapManagerInitialization is HelloWorldTaskManagerSetup {
+contract SwapManagerInitialization is SwapManagerTaskManagerSetup {
     function testInitialization() public view {
-        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        ECDSAStakeRegistry stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
 
         IECDSAStakeRegistryTypes.Quorum memory quorum = stakeRegistry.quorum();
 
@@ -328,9 +328,9 @@ contract SwapManagerInitialization is HelloWorldTaskManagerSetup {
             "First strategy doesn't match mock token strategy"
         );
 
-        assertTrue(helloWorldDeployment.stakeRegistry != address(0), "StakeRegistry not deployed");
+        assertTrue(swapManagerDeployment.stakeRegistry != address(0), "StakeRegistry not deployed");
         assertTrue(
-            helloWorldDeployment.SwapManager != address(0),
+            swapManagerDeployment.SwapManager != address(0),
             "SwapManager not deployed"
         );
         assertTrue(coreDeployment.delegationManager != address(0), "DelegationManager not deployed");
@@ -342,7 +342,7 @@ contract SwapManagerInitialization is HelloWorldTaskManagerSetup {
     }
 }
 
-contract RegisterOperator is HelloWorldTaskManagerSetup {
+contract RegisterOperator is SwapManagerTaskManagerSetup {
     uint256 internal constant INITIAL_BALANCE = 100 ether;
     uint256 internal constant DEPOSIT_AMOUNT = 1 ether;
     uint256 internal constant OPERATOR_COUNT = 4;
@@ -357,8 +357,8 @@ contract RegisterOperator is HelloWorldTaskManagerSetup {
         /// Setting to internal state for convenience
         delegationManager = DelegationManager(coreDeployment.delegationManager);
         avsDirectory = AVSDirectory(coreDeployment.avsDirectory);
-        sm = ISwapManager(helloWorldDeployment.SwapManager);
-        stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        sm = ISwapManager(swapManagerDeployment.SwapManager);
+        stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
 
         addStrategy(address(mockToken));
 
@@ -404,12 +404,12 @@ contract RegisterOperator is HelloWorldTaskManagerSetup {
     }
 }
 
-contract CreateTask is HelloWorldTaskManagerSetup {
+contract CreateTask is SwapManagerTaskManagerSetup {
     ISwapManager internal sm;
 
     function setUp() public override {
         super.setUp();
-        sm = ISwapManager(helloWorldDeployment.SwapManager);
+        sm = ISwapManager(swapManagerDeployment.SwapManager);
     }
 
     function testCreateTask() public {
@@ -428,7 +428,7 @@ contract CreateTask is HelloWorldTaskManagerSetup {
     }
 }
 
-contract RespondToTask is HelloWorldTaskManagerSetup {
+contract RespondToTask is SwapManagerTaskManagerSetup {
     uint256 internal constant INITIAL_BALANCE = 100 ether;
     uint256 internal constant DEPOSIT_AMOUNT = 1 ether;
     uint256 internal constant OPERATOR_COUNT = 4;
@@ -443,8 +443,8 @@ contract RespondToTask is HelloWorldTaskManagerSetup {
 
         delegationManager = IDelegationManager(coreDeployment.delegationManager);
         avsDirectory = AVSDirectory(coreDeployment.avsDirectory);
-        sm = ISwapManager(helloWorldDeployment.SwapManager);
-        stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        sm = ISwapManager(swapManagerDeployment.SwapManager);
+        stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
 
         addStrategy(address(mockToken));
 
@@ -498,7 +498,7 @@ contract RespondToTask is HelloWorldTaskManagerSetup {
     }
 }
 
-contract SlashOperator is HelloWorldTaskManagerSetup {
+contract SlashOperator is SwapManagerTaskManagerSetup {
     uint256 internal constant INITIAL_BALANCE = 100 ether;
     uint256 internal constant DEPOSIT_AMOUNT = 1 ether;
     uint256 internal constant OPERATOR_COUNT = 4;
@@ -513,8 +513,8 @@ contract SlashOperator is HelloWorldTaskManagerSetup {
 
         delegationManager = IDelegationManager(coreDeployment.delegationManager);
         avsDirectory = AVSDirectory(coreDeployment.avsDirectory);
-        sm = ISwapManager(helloWorldDeployment.SwapManager);
-        stakeRegistry = ECDSAStakeRegistry(helloWorldDeployment.stakeRegistry);
+        sm = ISwapManager(swapManagerDeployment.SwapManager);
+        stakeRegistry = ECDSAStakeRegistry(swapManagerDeployment.stakeRegistry);
 
         addStrategy(address(mockToken));
 

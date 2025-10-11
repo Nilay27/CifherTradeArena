@@ -4,15 +4,15 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "../script/utils/SetupDistributionsLib.sol";
 import "../script/utils/CoreDeploymentParsingLib.sol";
-import "../script/utils/HelloWorldDeploymentLib.sol";
+import "../script/utils/SwapManagerDeploymentLib.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import "../src/ISwapManager.sol";
 import "@eigenlayer/contracts/interfaces/IStrategy.sol";
 import "@eigenlayer/contracts/libraries/Merkle.sol";
 import "../script/DeployEigenLayerCore.s.sol";
-import "../script/HelloWorldDeployer.s.sol";
+import "../script/SwapManagerDeployer.s.sol";
 import {StrategyFactory} from "@eigenlayer/contracts/strategies/StrategyFactory.sol";
-import {HelloWorldTaskManagerSetup} from "test/SwapManager.t.sol";
+// import {SwapManagerTaskManagerSetup} from "test/SwapManager.t.sol";
 import {ECDSAServiceManagerBase} from
     "@eigenlayer-middleware/src/unaudited/ECDSAServiceManagerBase.sol";
 import {
@@ -32,7 +32,7 @@ contract TestConstants {
     uint256 NUM_EARNERS = 4;
 }
 
-contract SetupDistributionsLibTest is Test, TestConstants, HelloWorldTaskManagerSetup {
+contract SetupDistributionsLibTest is Test, TestConstants /*, SwapManagerTaskManagerSetup*/ {
     using SetupDistributionsLib for *;
 
     Vm cheats = Vm(VM_ADDRESS);
@@ -62,13 +62,13 @@ contract SetupDistributionsLibTest is Test, TestConstants, HelloWorldTaskManager
             IECDSAStakeRegistryTypes.StrategyParams({strategy: strategy, multiplier: 10_000})
         );
 
-        helloWorldDeployment = HelloWorldDeploymentLib.deployContracts(
+        swapManagerDeployment = SwapManagerDeploymentLib.deployContracts(
             proxyAdmin, coreDeployment, quorum, rewardsInitiator, rewardsOwner
         );
-        labelContracts(coreDeployment, helloWorldDeployment);
+        labelContracts(coreDeployment, swapManagerDeployment);
 
         cheats.prank(rewardsOwner);
-        ECDSAServiceManagerBase(helloWorldDeployment.SwapManager).setRewardsInitiator(
+        ECDSAServiceManagerBase(swapManagerDeployment.SwapManager).setRewardsInitiator(
             rewardsInitiator
         );
 
@@ -215,12 +215,12 @@ contract SetupDistributionsLibTest is Test, TestConstants, HelloWorldTaskManager
 
         cheats.prank(rewardsInitiator);
         mockToken.increaseAllowance(
-            helloWorldDeployment.SwapManager, amountPerPayment * numPayments
+            swapManagerDeployment.SwapManager, amountPerPayment * numPayments
         );
 
         cheats.startPrank(rewardsInitiator);
         SetupDistributionsLib.createAVSRewardsSubmissions(
-            address(helloWorldDeployment.SwapManager),
+            address(swapManagerDeployment.SwapManager),
             address(strategy),
             numPayments,
             amountPerPayment,

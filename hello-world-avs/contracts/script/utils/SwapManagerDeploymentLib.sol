@@ -17,7 +17,7 @@ import {UpgradeableProxyLib} from "./UpgradeableProxyLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./CoreDeploymentParsingLib.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-library HelloWorldDeploymentLib {
+library SwapManagerDeploymentLib {
     using stdJson for *;
     using Strings for *;
     using UpgradeableProxyLib for address;
@@ -78,7 +78,7 @@ library HelloWorldDeploymentLib {
         address owner,
         address rewardsInitiator
     ) private {
-        address SwapManager = deployment.SwapManager;
+        address swapManagerProxy = deployment.SwapManager;
         address SwapManagerImpl = address(
             new SwapManager(
                 core.avsDirectory,
@@ -94,7 +94,7 @@ library HelloWorldDeploymentLib {
             abi.encodeCall(SwapManager.initialize, (owner, rewardsInitiator));
 
         UpgradeableProxyLib.upgradeAndCall(
-            SwapManager, SwapManagerImpl, upgradeCall
+            swapManagerProxy, SwapManagerImpl, upgradeCall
         );
     }
 
@@ -110,7 +110,7 @@ library HelloWorldDeploymentLib {
     ) internal view returns (DeploymentData memory) {
         string memory fileName = string.concat(directoryPath, vm.toString(chainId), ".json");
 
-        require(vm.exists(fileName), "HelloWorldDeployment: Deployment file does not exist");
+        require(vm.exists(fileName), "SwapManagerDeployment: Deployment file does not exist");
 
         string memory json = vm.readFile(fileName);
 
@@ -128,7 +128,7 @@ library HelloWorldDeploymentLib {
     function writeDeploymentJson(
         DeploymentData memory data
     ) internal {
-        writeDeploymentJson("deployments/hello-world/", block.chainid, data);
+        writeDeploymentJson("deployments/swap-manager/", block.chainid, data);
     }
 
     function writeDeploymentJson(
@@ -157,7 +157,7 @@ library HelloWorldDeploymentLib {
         string memory pathToFile = string.concat(directoryPath, fileName);
 
         require(
-            vm.exists(pathToFile), "HelloWorldDeployment: Deployment Config file does not exist"
+            vm.exists(pathToFile), "SwapManagerDeployment: Deployment Config file does not exist"
         );
 
         string memory json = vm.readFile(pathToFile);

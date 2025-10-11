@@ -26,11 +26,11 @@ mod tests {
     use eigensdk::logging::init_logger;
 
     use eigensdk::utils::slashing::core::delegationmanager::DelegationManager;
-    use hello_world_utils::SwapManager::SwapManager::{
+    use swap_manager_utils::SwapManager::SwapManager::{
         self, latestTaskNumReturn,
     };
-    use hello_world_utils::{
-        get_anvil_eigenlayer_deployment_data, get_anvil_hello_world_deployment_data,
+    use swap_manager_utils::{
+        get_anvil_eigenlayer_deployment_data, get_anvil_swap_manager_deployment_data,
     };
     use reqwest::Url;
     use serial_test::serial;
@@ -79,23 +79,23 @@ mod tests {
         dotenv().ok();
         init_logger(eigensdk::logging::log_level::LogLevel::Info);
 
-        let hw_data = get_anvil_hello_world_deployment_data().unwrap();
-        let hello_world_contract_address: Address = hw_data
+        let hw_data = get_anvil_swap_manager_deployment_data().unwrap();
+        let swap_manager_contract_address: Address = hw_data
             .addresses
-            .hello_world_service_manager
+            .swap_manager_service_manager
             .parse()
             .unwrap();
         let provider = &get_provider(&anvil_http);
-        let hello_world_contract =
-            SwapManager::new(hello_world_contract_address, provider);
+        let swap_manager_contract =
+            SwapManager::new(swap_manager_contract_address, provider);
 
-        let latest_task_num = hello_world_contract.latestTaskNum().call().await.unwrap();
+        let latest_task_num = swap_manager_contract.latestTaskNum().call().await.unwrap();
 
         let latestTaskNumReturn { _0: task_num } = latest_task_num;
         let _ = create_new_task(&anvil_http, "HelloEigen").await;
 
         let latest_task_num_after_creating_task =
-            hello_world_contract.latestTaskNum().call().await.unwrap();
+            swap_manager_contract.latestTaskNum().call().await.unwrap();
         let latestTaskNumReturn {
             _0: task_num_after_task,
         } = latest_task_num_after_creating_task;

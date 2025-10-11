@@ -51,6 +51,12 @@ contract MockSwapManager is ISwapManager {
     ) external override returns (SwapTask memory) {
         taskCounter++;
         
+        // Mock operator selection - return 3 test operators
+        address[] memory selectedOps = new address[](3);
+        selectedOps[0] = address(0xAAA1);
+        selectedOps[1] = address(0xAAA2);
+        selectedOps[2] = address(0xAAA3);
+        
         SwapTask memory newTask = SwapTask({
             hook: msg.sender,
             user: user,
@@ -58,7 +64,8 @@ contract MockSwapManager is ISwapManager {
             tokenOut: tokenOut,
             encryptedAmount: encryptedAmount,
             deadline: deadline,
-            taskCreatedBlock: uint32(block.number)
+            taskCreatedBlock: uint32(block.number),
+            selectedOperators: selectedOps
         });
         
         tasks[taskCounter] = newTask;

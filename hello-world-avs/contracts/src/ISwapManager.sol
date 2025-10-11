@@ -15,6 +15,7 @@ interface ISwapManager {
         bytes encryptedAmount;  // FHE encrypted swap amount
         uint64 deadline;        // Swap deadline
         uint32 taskCreatedBlock;
+        address[] selectedOperators; // Operators selected for decryption
     }
 
     // View functions
@@ -23,6 +24,10 @@ interface ISwapManager {
     function allTaskHashes(uint32 taskIndex) external view returns (bytes32);
     
     function allTaskResponses(address operator, uint32 taskIndex) external view returns (bytes memory);
+    
+    function getTask(uint32 taskIndex) external view returns (SwapTask memory);
+    
+    function getOperatorCount() external view returns (uint256);
 
     // Core functions
     function createNewSwapTask(

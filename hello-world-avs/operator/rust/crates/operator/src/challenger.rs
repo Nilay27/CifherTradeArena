@@ -16,8 +16,8 @@ use eigensdk::{
 };
 use eyre::{Ok, Result};
 use futures::StreamExt;
-use hello_world_utils::{
-    get_hello_world_service_manager,
+use swap_manager_utils::{
+    get_swap_manager_service_manager,
     SwapManager::{
         SwapManager::{self},
         ISwapManager::Task,
@@ -52,7 +52,7 @@ impl Challenger {
         let signer = PrivateKeySigner::from_str(&private_key)?;
         let operator_address = signer.address();
 
-        let service_manager_address = get_hello_world_service_manager().unwrap();
+        let service_manager_address = get_swap_manager_service_manager().unwrap();
 
         let pr = get_provider(&rpc_url);
         let service_manager_contract = SwapManager::new(service_manager_address, &pr);
@@ -179,7 +179,7 @@ impl Challenger {
     /// Execute the slashing of an operator
     async fn slash_operator(&self, task: Task, task_index: u32) -> Result<()> {
         let pr = get_signer(&KEY.to_string(), &self.rpc_url);
-        let hello_world_contract = SwapManager::new(self.service_manager_address, &pr);
+        let swap_manager_contract = SwapManager::new(self.service_manager_address, &pr);
 
         get_logger().info(
             &format!(
@@ -189,7 +189,7 @@ impl Challenger {
             "",
         );
 
-        let tx_result = hello_world_contract
+        let tx_result = swap_manager_contract
             .slashOperator(task, task_index, self.operator_address)
             .send()
             .await?;

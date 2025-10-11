@@ -10,7 +10,7 @@ const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
 /// TODO: Hack
 let chainId = 31337;
 
-const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/hello-world/${chainId}.json`), 'utf8'));
+const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/swap-manager/${chainId}.json`), 'utf8'));
 const SwapManagerAddress = avsDeploymentData.addresses.SwapManager;
 const SwapManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8'));
 // Initialize contract objects from ABIs
