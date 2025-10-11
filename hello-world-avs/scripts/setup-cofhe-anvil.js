@@ -34,7 +34,8 @@ try {
 
 async function setupCoFHEonAnvil() {
     const provider = new ethers.JsonRpcProvider('http://localhost:8545');
-    
+    const wallet = new ethers.Wallet('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80', provider);
+
     console.log('Setting up CoFHE mock contracts on Anvil...\n');
     
     // Get the bytecode from deployed contracts
@@ -78,19 +79,71 @@ async function setupCoFHEonAnvil() {
             aclCode
         ]);
         console.log(`✅ Set ACL code at ${EXPECTED_ADDRESSES.acl}`);
-        
+
+        // Initialize and configure the TaskManager
+        console.log('\nInitializing and configuring TaskManager...');
+        const taskManagerABI = [
+            'function initialize(address initialOwner) public',
+            'function setACLContract(address _acl) external',
+            'function setSecurityZoneMin(int32 _min) external',
+            'function setSecurityZoneMax(int32 _max) external',
+            'function setVerifierSigner(address _signer) external'
+        ];
+        const taskManager = new ethers.Contract(EXPECTED_ADDRESSES.taskManager, taskManagerABI, wallet);
+
+        // Initialize TaskManager - just try to initialize, will revert if already done
+        try {
+            const initTx = await taskManager.initialize(wallet.address);
+            await initTx.wait();
+            console.log('✅ TaskManager initialized');
+        } catch (initError) {
+            console.log('TaskManager initialization skipped (may already be initialized)');
+        }
+
+        // Configure TaskManager like in CoFheTest
+        try {
+            // Set ACL contract
+            await (await taskManager.setACLContract(EXPECTED_ADDRESSES.acl)).wait();
+            console.log('✅ ACL contract set in TaskManager');
+
+            // Set security zones
+            await (await taskManager.setSecurityZoneMin(0)).wait();
+            await (await taskManager.setSecurityZoneMax(1)).wait();
+            console.log('✅ Security zones configured');
+
+            // Set verifier signer (using the same address as in MockCoFHE.sol and cofhejs)
+            // Both MockCoFHE.sol and cofhejs use the same private key which gives this address
+            const SIGNER_ADDRESS = '0x6E12D8C87503D4287c294f2Fdef96ACd9DFf6bd2';
+            await (await taskManager.setVerifierSigner(SIGNER_ADDRESS)).wait();
+            console.log('✅ Verifier signer set to:', SIGNER_ADDRESS);
+        } catch (configError) {
+            console.log('TaskManager configuration error:', configError.message);
+        }
+
+        // Initialize ACL
+        console.log('\nInitializing ACL...');
+        const aclABI = ['function initialize(address owner) public'];
+        const acl = new ethers.Contract(EXPECTED_ADDRESSES.acl, aclABI, wallet);
+
+        try {
+            await (await acl.initialize(wallet.address)).wait();
+            console.log('✅ ACL initialized');
+        } catch (aclError) {
+            console.log('ACL initialization skipped (may already be initialized)');
+        }
+
         // Verify the code is set
         const verifyZk = await provider.getCode(EXPECTED_ADDRESSES.zkVerifier);
         const verifyQd = await provider.getCode(EXPECTED_ADDRESSES.queryDecrypter);
         const verifyTm = await provider.getCode(EXPECTED_ADDRESSES.taskManager);
         const verifyAcl = await provider.getCode(EXPECTED_ADDRESSES.acl);
-        
+
         console.log('\nVerification:');
         console.log('ZkVerifier at expected address:', verifyZk.length > 2 ? '✅' : '❌');
         console.log('QueryDecrypter at expected address:', verifyQd.length > 2 ? '✅' : '❌');
         console.log('TaskManager at expected address:', verifyTm.length > 2 ? '✅' : '❌');
         console.log('ACL at expected address:', verifyAcl.length > 2 ? '✅' : '❌');
-        
+
         console.log('\n✅ All CoFHE mock contracts set at expected addresses');
         console.log('CoFHE.js should now work with real FHE encryption/decryption');
         

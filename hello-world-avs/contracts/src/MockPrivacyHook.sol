@@ -118,7 +118,7 @@ contract MockPrivacyHook {
     }
     
     /**
-     * @notice Submit an encrypted swap intent to the current batch
+     * @notice Submit an encrypted swap intent to the current batch (legacy bytes version)
      * @param tokenIn The input token address
      * @param tokenOut The output token address
      * @param encryptedAmount The encrypted swap amount (as bytes)
