@@ -2,14 +2,16 @@
 pragma solidity ^0.8.27;
 
 import "./ISwapManager.sol";
+import "./SimpleBoringVault.sol";
 
 /**
  * @title MockPrivacyHook
- * @notice Mock contract to simulate the UniversalPrivacyHook with batch processing
- * @dev This contract allows testing of batch-based AVS operator decryption and matching
+ * @notice Mock contract to simulate the UniversalPrivacyHook with batch processing and UEI support
+ * @dev This contract allows testing of batch-based AVS operator decryption, matching, and encrypted trade intents
  */
 contract MockPrivacyHook {
     ISwapManager public swapManager;
+    SimpleBoringVault public boringVault;
     
     // Track submitted intents
     mapping(bytes32 => Intent) public intents;
@@ -51,9 +53,68 @@ contract MockPrivacyHook {
     
     event BatchCreated(bytes32 indexed batchId, uint256 blockNumber);
     event BatchFinalized(bytes32 indexed batchId, uint256 intentCount);
-    
+    event UEISubmitted(bytes32 indexed intentId, address indexed submitter, bytes ctBlob);
+
     constructor(address _swapManager) {
         swapManager = ISwapManager(_swapManager);
+    }
+
+    /**
+     * @notice Set the SimpleBoringVault address
+     * @param _vault The address of the SimpleBoringVault
+     */
+    function setBoringVault(address payable _vault) external {
+        boringVault = SimpleBoringVault(_vault);
+    }
+
+    /**
+     * @notice Submit a Universal Encrypted Intent for trading strategies
+     * @param ctDecoder Encrypted decoder/sanitizer address
+     * @param ctTarget Encrypted target protocol address
+     * @param ctSelector Encrypted function selector (4 bytes)
+     * @param ctArgs Array of encrypted arguments
+     * @param deadline Expiration timestamp
+     * @return intentId The ID of the submitted UEI
+     */
+    function submitUEI(
+        bytes calldata ctDecoder,
+        bytes calldata ctTarget,
+        bytes calldata ctSelector,
+        bytes[] calldata ctArgs,
+        uint256 deadline
+    ) external returns (bytes32 intentId) {
+        // Pack all encrypted components into a blob
+        bytes memory ctBlob = abi.encode(
+            ctDecoder,
+            ctTarget,
+            ctSelector,
+            ctArgs
+        );
+
+        // Submit to SwapManager AVS
+        intentId = swapManager.submitUEI(ctBlob, deadline);
+
+        emit UEISubmitted(intentId, msg.sender, ctBlob);
+
+        return intentId;
+    }
+
+    /**
+     * @notice Simplified UEI submission for testing (all data in one blob)
+     * @param ctBlob Pre-encoded encrypted data containing all components
+     * @param deadline Expiration timestamp
+     * @return intentId The ID of the submitted UEI
+     */
+    function submitUEIBlob(
+        bytes calldata ctBlob,
+        uint256 deadline
+    ) external returns (bytes32 intentId) {
+        // Submit directly to SwapManager AVS
+        intentId = swapManager.submitUEI(ctBlob, deadline);
+
+        emit UEISubmitted(intentId, msg.sender, ctBlob);
+
+        return intentId;
     }
     
     /**

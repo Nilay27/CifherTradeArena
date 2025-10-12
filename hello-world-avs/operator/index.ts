@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 import { initializeCofheJs, batchDecryptAmounts, encryptAmount } from "./cofheUtils";
+import { initializeUEIProcessor, processUEI, monitorUEIEvents, decodeUEIBlob, reconstructCalldata } from './ueiProcessor';
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -457,11 +458,20 @@ const monitorBatches = async () => {
 const main = async () => {
     // Initialize CoFHE.js for FHE operations
     await initializeCofheJs(wallet);
-    
+
+    // Initialize UEI processor with the same wallet
+    await initializeUEIProcessor(wallet);
+
     await registerOperator();
+
+    // Monitor for swap batches
     monitorBatches().catch((error) => {
         console.error("Error monitoring batches:", error);
     });
+
+    // Monitor for UEI events
+    console.log("\n🔍 Starting UEI monitoring...");
+    monitorUEIEvents(SwapManager, wallet.address);
 };
 
 main().catch((error) => {

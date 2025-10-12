@@ -10,6 +10,7 @@ import {ECDSAUpgradeable} from
 import {IERC1271Upgradeable} from
     "@openzeppelin-upgrades/contracts/interfaces/IERC1271Upgradeable.sol";
 import {ISwapManager} from "./ISwapManager.sol";
+import {SimpleBoringVault} from "./SimpleBoringVault.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import {IAllocationManager} from "@eigenlayer/contracts/interfaces/IAllocationManager.sol";
@@ -43,6 +44,15 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
 
     // Max time for operators to respond with settlement
     uint32 public immutable MAX_RESPONSE_INTERVAL_BLOCKS;
+
+    // ========================================= UEI STATE VARIABLES =========================================
+
+    // UEI (Universal Encrypted Intent) management
+    mapping(bytes32 => UEITask) public ueiTasks;
+    mapping(bytes32 => UEIExecution) public ueiExecutions;
+
+    // SimpleBoringVault for executing trades
+    address payable public boringVault;
 
     modifier onlyOperator() {
         require(
@@ -396,5 +406,163 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         address
     ) external override {
         revert("Slashing not implemented");
+    }
+
+    // ========================================= UEI (Universal Encrypted Intent) FUNCTIONALITY =========================================
+
+    /**
+     * @notice Submit a Universal Encrypted Intent for trade execution
+     * @param ctBlob Encrypted blob containing decoder, target, selector, and arguments
+     * @param deadline Expiration timestamp for the intent
+     * @return intentId Unique identifier for the submitted intent
+     */
+    function submitUEI(
+        bytes calldata ctBlob,
+        uint256 deadline
+    ) external onlyAuthorizedHook returns (bytes32 intentId) {
+        // Generate unique intent ID
+        intentId = keccak256(abi.encode(msg.sender, ctBlob, deadline, block.number));
+
+        // Select operators for this UEI (reuse batch selection logic)
+        address[] memory selectedOps = new address[](COMMITTEE_SIZE);
+        uint256 seed = uint256(intentId);
+
+        for (uint256 i = 0; i < COMMITTEE_SIZE && i < registeredOperators.length; i++) {
+            uint256 index = (seed + i) % registeredOperators.length;
+            selectedOps[i] = registeredOperators[index];
+        }
+
+        // Create UEI task
+        UEITask memory task = UEITask({
+            intentId: intentId,
+            submitter: msg.sender,
+            ctBlob: ctBlob,
+            deadline: deadline,
+            blockSubmitted: block.number,
+            selectedOperators: selectedOps,
+            status: UEIStatus.Pending
+        });
+
+        // Store the task
+        ueiTasks[intentId] = task;
+
+        emit UEISubmitted(intentId, msg.sender, ctBlob, deadline, selectedOps);
+        return intentId;
+    }
+
+    /**
+     * @notice Process a decrypted UEI by executing the trade
+     * @param intentId The ID of the intent to process
+     * @param decoder The decrypted decoder/sanitizer address
+     * @param target The decrypted target protocol address
+     * @param reconstructedData The reconstructed calldata from decrypted components
+     * @param operatorSignatures Signatures from operators attesting to the decryption
+     */
+    function processUEI(
+        bytes32 intentId,
+        address decoder,
+        address target,
+        bytes calldata reconstructedData,
+        bytes[] calldata operatorSignatures
+    ) external onlyOperator {
+        UEITask storage task = ueiTasks[intentId];
+
+        // Validate task
+        require(task.status == UEIStatus.Pending, "UEI not pending");
+        require(block.timestamp <= task.deadline, "UEI expired");
+
+        // Verify operator is selected for this task
+        bool isSelected = false;
+        for (uint256 i = 0; i < task.selectedOperators.length; i++) {
+            if (task.selectedOperators[i] == msg.sender) {
+                isSelected = true;
+                break;
+            }
+        }
+        require(isSelected, "Operator not selected for this UEI");
+
+        // Verify consensus signatures
+        uint256 validSignatures = 0;
+        bytes32 dataHash = keccak256(abi.encode(intentId, decoder, target, reconstructedData));
+
+        for (uint256 i = 0; i < operatorSignatures.length && i < task.selectedOperators.length; i++) {
+            address signer = dataHash.toEthSignedMessageHash().recover(operatorSignatures[i]);
+
+            // Check if signer is a selected operator
+            for (uint256 j = 0; j < task.selectedOperators.length; j++) {
+                if (task.selectedOperators[j] == signer) {
+                    validSignatures++;
+                    break;
+                }
+            }
+        }
+
+        require(validSignatures >= MIN_ATTESTATIONS, "Insufficient consensus");
+
+        // Update status
+        task.status = UEIStatus.Processing;
+
+        // Store the processing details
+        UEIExecution memory execution = UEIExecution({
+            intentId: intentId,
+            decoder: decoder,
+            target: target,
+            callData: reconstructedData,  // Fixed field name
+            executor: msg.sender,
+            executedAt: block.timestamp,
+            success: false,
+            result: ""
+        });
+
+        // Execute through vault (vault address should be set)
+        if (boringVault != address(0)) {
+            try SimpleBoringVault(boringVault).execute(target, reconstructedData, 0) returns (bytes memory result) {
+                execution.success = true;
+                execution.result = result;
+                task.status = UEIStatus.Executed;
+            } catch Error(string memory reason) {
+                execution.result = bytes(reason);
+                task.status = UEIStatus.Failed;
+            } catch (bytes memory reason) {
+                execution.result = reason;
+                task.status = UEIStatus.Failed;
+            }
+        } else {
+            // If vault not set, just mark as executed for testing
+            task.status = UEIStatus.Executed;
+            execution.success = true;
+        }
+
+        // Store execution record
+        ueiExecutions[intentId] = execution;
+
+        emit UEIProcessed(intentId, execution.success, execution.result);
+    }
+
+    /**
+     * @notice Set the BoringVault address for UEI execution
+     * @param _vault The address of the SimpleBoringVault
+     */
+    function setBoringVault(address payable _vault) external onlyOwner {
+        boringVault = _vault;
+        emit BoringVaultSet(_vault);
+    }
+
+    /**
+     * @notice Get UEI task details
+     * @param intentId The ID of the UEI task
+     * @return The UEI task struct
+     */
+    function getUEITask(bytes32 intentId) external view returns (UEITask memory) {
+        return ueiTasks[intentId];
+    }
+
+    /**
+     * @notice Get UEI execution details
+     * @param intentId The ID of the UEI execution
+     * @return The UEI execution struct
+     */
+    function getUEIExecution(bytes32 intentId) external view returns (UEIExecution memory) {
+        return ueiExecutions[intentId];
     }
 }

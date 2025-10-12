@@ -73,6 +73,19 @@
   },
   {
     "type": "function",
+    "name": "boringVault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract SimpleBoringVault"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "currentBatchId",
     "inputs": [],
     "outputs": [
@@ -250,6 +263,19 @@
   },
   {
     "type": "function",
+    "name": "setBoringVault",
+    "inputs": [
+      {
+        "name": "_vault",
+        "type": "address",
+        "internalType": "address payable"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settleBatch",
     "inputs": [
       {
@@ -400,6 +426,69 @@
   },
   {
     "type": "function",
+    "name": "submitUEI",
+    "inputs": [
+      {
+        "name": "ctDecoder",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "ctTarget",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "ctSelector",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "ctArgs",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "submitUEIBlob",
+    "inputs": [
+      {
+        "name": "ctBlob",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "swapManager",
     "inputs": [],
     "outputs": [
@@ -479,6 +568,31 @@
       },
       {
         "name": "encryptedAmount",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UEISubmitted",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "submitter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "ctBlob",
         "type": "bytes",
         "indexed": false,
         "internalType": "bytes"

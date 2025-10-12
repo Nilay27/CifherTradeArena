@@ -129,4 +129,75 @@ interface ISwapManager {
     function isOperatorSelectedForBatch(bytes32 batchId, address operator) external view returns (bool);
     function isOperatorRegistered(address operator) external view returns (bool);
     function registerOperatorForBatches() external;
+
+    // ============ UEI (Universal Encrypted Intent) SYSTEM ============
+
+    // UEI status tracking
+    enum UEIStatus {
+        Pending,
+        Processing,
+        Executed,
+        Failed,
+        Expired
+    }
+
+    // UEI task structure
+    struct UEITask {
+        bytes32 intentId;
+        address submitter;
+        bytes ctBlob;  // Contains encrypted decoder, target, selector, args
+        uint256 deadline;
+        uint256 blockSubmitted;
+        address[] selectedOperators;
+        UEIStatus status;
+    }
+
+    // UEI execution record
+    struct UEIExecution {
+        bytes32 intentId;
+        address decoder;
+        address target;
+        bytes callData;  // Renamed from calldata (reserved keyword)
+        address executor;
+        uint256 executedAt;
+        bool success;
+        bytes result;
+    }
+
+    // UEI events
+    event UEISubmitted(
+        bytes32 indexed intentId,
+        address indexed submitter,
+        bytes ctBlob,
+        uint256 deadline,
+        address[] selectedOperators
+    );
+
+    event UEIProcessed(
+        bytes32 indexed intentId,
+        bool success,
+        bytes result
+    );
+
+    event BoringVaultSet(address indexed vault);
+
+    // UEI functions
+    function submitUEI(
+        bytes calldata ctBlob,
+        uint256 deadline
+    ) external returns (bytes32 intentId);
+
+    function processUEI(
+        bytes32 intentId,
+        address decoder,
+        address target,
+        bytes calldata reconstructedData,
+        bytes[] calldata operatorSignatures
+    ) external;
+
+    function setBoringVault(address payable _vault) external;
+
+    // UEI view functions
+    function getUEITask(bytes32 intentId) external view returns (UEITask memory);
+    function getUEIExecution(bytes32 intentId) external view returns (UEIExecution memory);
 }
