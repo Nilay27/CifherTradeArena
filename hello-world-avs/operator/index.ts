@@ -279,21 +279,50 @@ const processBatch = async (batchId: string, batchData: any) => {
         // In production, this would come from the batch data or be queried
         const intents: Intent[] = [];
         
-        // Fetch intent details from MockPrivacyHook contract
-        // Load the hook address from deployment
-        const mockHookDeployment = JSON.parse(
-            fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/mock-hook/${chainId}.json`), 'utf8')
-        );
-        const hookAddress = mockHookDeployment.addresses.mockPrivacyHook;
-        
+        // Fetch intent details from UniversalPrivacyHook contract
+        // First try to load UniversalPrivacyHook address, fallback to MockPrivacyHook
+        let hookAddress: string;
+        let isUniversalHook = false;
+
+        try {
+            // Try to load UniversalPrivacyHook deployment
+            const universalHookDeployment = JSON.parse(
+                fs.readFileSync(path.resolve(__dirname, `../../universal-privacy-hook/deployments/latest.json`), 'utf8')
+            );
+            if (universalHookDeployment.universalPrivacyHook) {
+                hookAddress = universalHookDeployment.universalPrivacyHook;
+                isUniversalHook = true;
+                console.log(`Using UniversalPrivacyHook at: ${hookAddress}`);
+            } else {
+                throw new Error("UniversalPrivacyHook not found");
+            }
+        } catch (e) {
+            // Fallback to MockPrivacyHook
+            const mockHookDeployment = JSON.parse(
+                fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/mock-hook/${chainId}.json`), 'utf8')
+            );
+            hookAddress = mockHookDeployment.addresses.mockPrivacyHook;
+            console.log(`Using MockPrivacyHook at: ${hookAddress}`);
+        }
+
         if (!hookAddress) {
-            console.error("MockPrivacyHook address not found in deployment");
+            console.error("No hook address found in deployment");
             return;
         }
-        
-        console.log(`Using MockPrivacyHook at: ${hookAddress}`);
-        const mockHookABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/MockPrivacyHook.json'), 'utf8'));
-        const mockHook = new ethers.Contract(hookAddress, mockHookABI, wallet);
+
+        // Load the appropriate ABI based on which hook we're using
+        let hookABI;
+        if (isUniversalHook) {
+            // For UniversalPrivacyHook, we need the getIntent function
+            // Since we don't have the full ABI, we'll define just what we need
+            hookABI = [
+                'function getIntent(bytes32) external view returns (address user, address tokenIn, address tokenOut, bytes encryptedAmount)'
+            ];
+        } else {
+            hookABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/MockPrivacyHook.json'), 'utf8'));
+        }
+
+        const mockHook = new ethers.Contract(hookAddress, hookABI, wallet);
         
         // Fetch and decrypt each intent
         console.log("Fetching and decrypting intents...");
@@ -346,18 +375,25 @@ const processBatch = async (batchId: string, batchData: any) => {
         }));
         
         // For simplicity, take the first net swap if exists
-        let netSwap = {
+        let netSwap: {
+            tokenIn: string;
+            tokenOut: string;
+            netAmount: bigint;
+            remainingIntents: string[];
+        } = {
             tokenIn: ethers.ZeroAddress,
             tokenOut: ethers.ZeroAddress,
             netAmount: 0n,
-            remainingIntents: [] as string[]
+            remainingIntents: []
         };
         let hasNetSwap = false;
-        
+
         if (netSwaps.size > 0) {
             const firstNetSwap = netSwaps.values().next().value;
-            netSwap = firstNetSwap;
-            hasNetSwap = true;
+            if (firstNetSwap) {
+                netSwap = firstNetSwap;
+                hasNetSwap = true;
+            }
         }
         
         // Calculate totals

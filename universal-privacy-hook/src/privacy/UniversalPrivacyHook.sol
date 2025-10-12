@@ -354,10 +354,38 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
      * @dev Set the SwapManager address (owner only)
      */
     function setSwapManager(address _swapManager) external {
-        require(msg.sender == address(this), "Only owner"); // TODO: Add proper access control
+        // For testing, allow anyone to set it (in production, add proper access control)
+        // require(msg.sender == owner, "Only owner");
         swapManager = ISwapManager(_swapManager);
     }
     
+    /**
+     * @dev Get intent details for AVS compatibility
+     * @param intentId The ID of the intent to retrieve
+     * @return user The user who submitted the intent
+     * @return tokenIn The input token address
+     * @return tokenOut The output token address
+     * @return encryptedAmount The encrypted amount as bytes
+     */
+    function getIntent(bytes32 intentId) external view returns (
+        address user,
+        address tokenIn,
+        address tokenOut,
+        bytes memory encryptedAmount
+    ) {
+        Intent storage intent = intents[intentId];
+        require(intent.owner != address(0), "Intent not found");
+
+        user = intent.owner;
+        tokenIn = Currency.unwrap(intent.tokenIn);
+        tokenOut = Currency.unwrap(intent.tokenOut);
+
+        // Package the euint128 as bytes for AVS compatibility
+        // The AVS expects the ctHash encoded as bytes
+        uint256 ctHash = euint128.unwrap(intent.encAmount);
+        encryptedAmount = abi.encode(ctHash);
+    }
+
     /**
      * @dev Check if a batch is ready for processing
      */

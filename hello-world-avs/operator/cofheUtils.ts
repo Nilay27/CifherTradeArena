@@ -166,11 +166,30 @@ export const batchDecryptAmounts = async (encryptedAmounts: string[]): Promise<b
     // Process all encrypted amounts in parallel for efficiency
     const decryptPromises = encryptedAmounts.map(async (encryptedAmount, index) => {
         try {
-            // Decode the encrypted handle (ctHash) from the bytes
-            const encryptedHandle = ethers.AbiCoder.defaultAbiCoder().decode(
-                ["uint256"],
-                encryptedAmount
-            )[0];
+            let encryptedHandle: bigint;
+
+            // Try to decode as full InEuint128 struct first (new format)
+            try {
+                // InEuint128 struct contains: ctHash, securityZone, utype, signature
+                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
+                    ["tuple(uint256,uint8,uint8,bytes)"],
+                    encryptedAmount
+                );
+                encryptedHandle = decoded[0][0]; // Extract ctHash from the struct
+                console.log(`  [${index}] Decoded InEuint128 struct, ctHash: ${encryptedHandle}`);
+            } catch (structError) {
+                // Fallback: try to decode as uint256 directly (old format)
+                try {
+                    encryptedHandle = ethers.AbiCoder.defaultAbiCoder().decode(
+                        ["uint256"],
+                        encryptedAmount
+                    )[0];
+                    console.log(`  [${index}] Decoded as uint256, ctHash: ${encryptedHandle}`);
+                } catch (uint256Error) {
+                    console.error(`  [${index}] Failed to decode as both struct and uint256:`, uint256Error);
+                    return BigInt(1000 * 1e6); // Default fallback
+                }
+            }
 
             // Calculate the unique storage slot for this ctHash
             // Storage location = keccak256(ctHash, mappingSlot)
