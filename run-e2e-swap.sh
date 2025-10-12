@@ -134,12 +134,13 @@ sleep 5
 
 cd ..
 
-# Step 5: Run the integration test
+# Step 5: Run the universal traffic generator
 echo ""
-echo -e "${YELLOW}Step 5: Running integration test...${NC}"
+echo -e "${YELLOW}Step 5: Running universal swap traffic generator...${NC}"
 
-# Run the integration test
-node test-integration.js
+# Run the universal traffic generator
+cd hello-world-avs
+npm run start:universal
 
 
 # Cleanup

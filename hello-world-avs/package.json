@@ -5,6 +5,8 @@
   "scripts": {
     "start:operator": "ts-node operator/index.ts",
     "start:traffic": "ts-node operator/createEncryptedSwapTasks.ts",
+    "start:universal": "ts-node operator/createUniversalSwapTasks.ts",
+    "start:universal-js": "node operator/createUniversalSwapTasks.js",
     "start:uei": "ts-node operator/createEncryptedUEITasks.ts",
     "start:anvil": "anvil",
     "deploy:core": "cd contracts && forge script script/DeployEigenLayerCore.s.sol --rpc-url http://localhost:8545 --broadcast --optimize --optimizer-runs 200 --via-ir",
@@ -27,7 +29,7 @@
     "bignumber.js": "^9.3.1",
     "cofhejs": "^0.2.1-alpha.1",
     "dotenv": "^10.0.0",
-    "ethers": "^6.13.2"
+    "ethers": "^6.15.0"
   },
   "devDependencies": {
     "@fhenixprotocol/cofhe-contracts": "^0.0.13",

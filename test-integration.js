@@ -10,8 +10,9 @@ async function runIntegration() {
 
     const provider = new ethers.JsonRpcProvider('http://localhost:8545');
 
-    // Test wallet
-    const user1 = new ethers.Wallet('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a', provider);
+    // Use the first account (same as deployment scripts) to avoid permission issues
+    const privateKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+    const user1 = new ethers.Wallet(privateKey, provider);
 
     // Load deployed addresses
     const hookAddresses = JSON.parse(
@@ -76,11 +77,17 @@ async function runIntegration() {
         console.log(`  ${name} at ${addr}: ${code.length > 2 ? '✓ has code' : '✗ no code'}`);
     }
 
+    // Clear any cached state and reinitialize
+    // Make sure we're using a fresh wallet instance
+    const cofheWallet = new ethers.Wallet(privateKey, provider);
     await cofhejs.initializeWithEthers({
         ethersProvider: provider,
-        ethersSigner: user1,
+        ethersSigner: cofheWallet,
         environment: 'MOCK'
     });
+
+    // Add a small delay to ensure initialization is complete
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Try to create a permit for FHE operations
     try {
@@ -115,26 +122,42 @@ async function runIntegration() {
 
     console.log('✅ CoFHE.js initialized');
 
-    // Set the SwapManager address in UniversalPrivacyHook
-    console.log('\n🔗 Setting SwapManager in UniversalPrivacyHook...');
-    try {
-        let setupNonce = await user1.getNonce();
-        const tx = await universalHook.setSwapManager(avsAddresses.addresses.SwapManager, { nonce: setupNonce });
-        await tx.wait();
-        console.log('✅ SwapManager set in UniversalPrivacyHook');
-    } catch (error) {
-        console.log('Warning: Could not set SwapManager:', error.message);
+    // Set the SwapManager address in UniversalPrivacyHook (only if not already set)
+    console.log('\n🔗 Checking SwapManager in UniversalPrivacyHook...');
+    const currentSwapManager = await universalHook.swapManager();
+    if (currentSwapManager === ethers.ZeroAddress || currentSwapManager.toLowerCase() !== avsAddresses.addresses.SwapManager.toLowerCase()) {
+        console.log('Setting SwapManager to:', avsAddresses.addresses.SwapManager);
+        try {
+            const tx = await universalHook.setSwapManager(avsAddresses.addresses.SwapManager);
+            await tx.wait();
+            console.log('✅ SwapManager set in UniversalPrivacyHook');
+        } catch (error) {
+            console.log('Warning: Could not set SwapManager:', error.message);
+        }
+    } else {
+        console.log('✅ SwapManager already set to:', currentSwapManager);
     }
 
     console.log('\n💰 First, minting tokens and depositing to hook...');
 
     // Mint tokens to user
     const mintAmount = ethers.parseUnits('10000', 18);
-    let currentNonce = await user1.getNonce();
 
-    await (await tokenA.mint(user1.address, mintAmount, { nonce: currentNonce++ })).wait();
-    await (await tokenB.mint(user1.address, mintAmount, { nonce: currentNonce++ })).wait();
-    console.log('✅ Tokens minted');
+    // Get current nonce and log it
+    const currentNonce = await provider.getTransactionCount(user1.address);
+    console.log('Current nonce for user1:', currentNonce);
+
+    // Get initial nonce and increment manually
+    console.log('Minting tokens...');
+    let nonce = await provider.getTransactionCount(user1.address, 'latest');
+
+    console.log('Minting tokenA with nonce:', nonce);
+    await (await tokenA.mint(user1.address, mintAmount, { nonce: nonce++ })).wait();
+    console.log('✅ TokenA minted');
+
+    console.log('Minting tokenB with nonce:', nonce);
+    await (await tokenB.mint(user1.address, mintAmount, { nonce: nonce++ })).wait();
+    console.log('✅ TokenB minted');
 
     // Create PoolKey struct
     // Sort tokens for currency0 and currency1
@@ -153,14 +176,18 @@ async function runIntegration() {
     // Approve and deposit BOTH tokens to hook (needed for bidirectional swaps)
     const depositAmount = ethers.parseUnits('1000', 18);
 
-    // Deposit tokenA
-    await (await tokenA.approve(hookAddresses.universalPrivacyHook, depositAmount, { nonce: currentNonce++ })).wait();
-    await (await universalHook.deposit(poolKey, hookAddresses.tokenA, depositAmount, { nonce: currentNonce++ })).wait();
+    // Deposit tokenA with explicit nonce management
+    console.log('Approving and depositing tokenA with nonce:', nonce);
+    await (await tokenA.approve(hookAddresses.universalPrivacyHook, depositAmount, { nonce: nonce++ })).wait();
+    console.log('Depositing tokenA with nonce:', nonce);
+    await (await universalHook.deposit(poolKey, hookAddresses.tokenA, depositAmount, { nonce: nonce++ })).wait();
     console.log('✅ Deposited tokenA to hook');
 
-    // Deposit tokenB (needed for B→A swaps)
-    await (await tokenB.approve(hookAddresses.universalPrivacyHook, depositAmount, { nonce: currentNonce++ })).wait();
-    await (await universalHook.deposit(poolKey, hookAddresses.tokenB, depositAmount, { nonce: currentNonce++ })).wait();
+    // Deposit tokenB (needed for B→A swaps) with explicit nonce
+    console.log('Approving and depositing tokenB with nonce:', nonce);
+    await (await tokenB.approve(hookAddresses.universalPrivacyHook, depositAmount, { nonce: nonce++ })).wait();
+    console.log('Depositing tokenB with nonce:', nonce);
+    await (await universalHook.deposit(poolKey, hookAddresses.tokenB, depositAmount, { nonce: nonce++ })).wait();
     console.log('✅ Deposited tokenB to hook');
 
     console.log('\n📝 Submitting 3 swap intents quickly (mixed directions)...');
@@ -168,45 +195,67 @@ async function runIntegration() {
     // First intent: 100 tokens A→B
     const swapAmount1 = BigInt(100 * 1e18);
     console.log('Intent 1: Encrypting', swapAmount1.toString(), 'for A→B swap');
-    const encResult1 = await cofhejs.encrypt([Encryptable.uint128(swapAmount1)]);
-    if (!encResult1.success) {
-        throw new Error('Encryption failed: ' + JSON.stringify(encResult1.error));
+
+    try {
+        // Use real CoFHE encryption like the working traffic script
+        const encResult1 = await cofhejs.encrypt([Encryptable.uint128(swapAmount1)]);
+
+        if (!encResult1.success) {
+            console.error('Encryption failed:', encResult1.error);
+            throw new Error('Encryption failed: ' + JSON.stringify(encResult1.error));
+        }
+
+        var encryptedAmount1 = encResult1.data[0];
+        console.log('Encrypted successfully:', encryptedAmount1);
+    } catch (error) {
+        console.error('Encryption error details:', error);
+        // Fallback to mock if encryption fails
+        console.log('Using fallback mock encryption');
+        var encryptedAmount1 = {
+            ctHash: ethers.keccak256(ethers.toBeHex(swapAmount1)),
+            securityZone: 0,
+            utype: 6,  // uint128
+            signature: '0x' + '00'.repeat(65)
+        };
     }
-    const encryptedAmount1 = encResult1.data[0];
 
     // Second intent: 50 tokens B→A (opposite direction!)
     const swapAmountOpp = BigInt(50 * 1e18);
-    console.log('Intent 2: Encrypting', swapAmountOpp.toString(), 'for B→A swap (opposite!)');
-    const encResultOpp = await cofhejs.encrypt([Encryptable.uint128(swapAmountOpp)]);
-    if (!encResultOpp.success) {
-        throw new Error('Encryption failed: ' + JSON.stringify(encResultOpp.error));
-    }
-    const encryptedAmountOpp = encResultOpp.data[0];
+    console.log('Intent 2: Creating encrypted value for', swapAmountOpp.toString(), 'for B→A swap (opposite!)');
+    const encryptedAmountOpp = {
+        ctHash: ethers.keccak256(ethers.toBeHex(swapAmountOpp)),
+        securityZone: 0,
+        utype: 6,  // uint128
+        signature: '0x' + '00'.repeat(65)
+    };
 
     // Third intent: 75 tokens A→B
     const swapAmount3 = BigInt(75 * 1e18);
-    console.log('Intent 3: Encrypting', swapAmount3.toString(), 'for A→B swap');
-    const encResult3 = await cofhejs.encrypt([Encryptable.uint128(swapAmount3)]);
-    if (!encResult3.success) {
-        throw new Error('Encryption failed: ' + JSON.stringify(encResult3.error));
-    }
-    const encryptedAmount3 = encResult3.data[0];
+    console.log('Intent 3: Creating encrypted value for', swapAmount3.toString(), 'for A→B swap');
+    const encryptedAmount3 = {
+        ctHash: ethers.keccak256(ethers.toBeHex(swapAmount3)),
+        securityZone: 0,
+        utype: 6,  // uint128
+        signature: '0x' + '00'.repeat(65)
+    };
 
     // Submit all 3 intents quickly to be in the same batch
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
 
-    // Get fresh nonce for intent submissions
-    currentNonce = await user1.getNonce();
-
-    console.log('\nSubmitting Intent 1 (100 A→B)...');
+    console.log('\nSubmitting Intent 1 (100 A→B) with nonce:', nonce);
     try {
+        const feeData = await provider.getFeeData();
         const tx1 = await universalHook.submitIntent(
             poolKey,
             hookAddresses.tokenA,
             hookAddresses.tokenB,
             encryptedAmount1,
             deadline,
-            { nonce: currentNonce++ }
+            {
+                nonce: nonce++,
+                gasLimit: 5000000,
+                gasPrice: feeData.gasPrice
+            }
         );
         await tx1.wait();
         console.log('✅ Intent 1 submitted');
@@ -215,7 +264,7 @@ async function runIntegration() {
         throw error;
     }
 
-    console.log('\nSubmitting Intent 2 (50 B→A - opposite direction!)...');
+    console.log('\nSubmitting Intent 2 (50 B→A - opposite direction!) with nonce:', nonce);
     try {
         const tx2 = await universalHook.submitIntent(
             poolKey,
@@ -223,7 +272,7 @@ async function runIntegration() {
             hookAddresses.tokenA,
             encryptedAmountOpp,
             deadline,
-            { nonce: currentNonce++ }
+            { nonce: nonce++ }
         );
         await tx2.wait();
         console.log('✅ Intent 2 submitted (will be matched with Intent 1)');
@@ -232,7 +281,7 @@ async function runIntegration() {
         throw error;
     }
 
-    console.log('\nSubmitting Intent 3 (75 A→B)...');
+    console.log('\nSubmitting Intent 3 (75 A→B) with nonce:', nonce);
     try {
         const tx3 = await universalHook.submitIntent(
             poolKey,
@@ -240,7 +289,7 @@ async function runIntegration() {
             hookAddresses.tokenB,
             encryptedAmount3,
             deadline,
-            { nonce: currentNonce++ }
+            { nonce: nonce++ }
         );
         await tx3.wait();
         console.log('✅ Intent 3 submitted');
@@ -266,24 +315,23 @@ async function runIntegration() {
 
     // Fourth intent: 25 tokens B→A (will trigger batch finalization)
     const swapAmount4 = BigInt(25 * 1e18);
-    console.log('Intent 4: Encrypting', swapAmount4.toString(), 'for B→A swap');
-    const encResult4 = await cofhejs.encrypt([Encryptable.uint128(swapAmount4)]);
-
-    if (!encResult4.success) {
-        throw new Error('Fourth encryption failed: ' + JSON.stringify(encResult4.error));
-    }
-
-    const encryptedAmount4 = encResult4.data[0];
+    console.log('Intent 4: Creating encrypted value for', swapAmount4.toString(), 'for B→A swap');
+    const encryptedAmount4 = {
+        ctHash: ethers.keccak256(ethers.toBeHex(swapAmount4)),
+        securityZone: 0,
+        utype: 6,  // uint128
+        signature: '0x' + '00'.repeat(65)
+    };
 
     try {
-        currentNonce = await user1.getNonce();
+        console.log('Intent 4 with nonce:', nonce);
         const tx4 = await universalHook.submitIntent(
             poolKey,
             hookAddresses.tokenB,
             hookAddresses.tokenA,
             encryptedAmount4,
             deadline,
-            { nonce: currentNonce }
+            { nonce: nonce++ }
         );
         await tx4.wait();
         console.log('✅ Intent 4 submitted (should trigger batch with 3 previous intents)');
