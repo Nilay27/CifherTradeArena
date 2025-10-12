@@ -35,7 +35,6 @@ import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockC
 // Privacy Components
 import {HybridFHERC20} from "./HybridFHERC20.sol";
 import {IFHERC20} from "./interfaces/IFHERC20.sol";
-import {Queue} from "../Queue.sol";
 import {ISwapManager} from "./interfaces/ISwapManager.sol";
 
 // Token & Security
@@ -58,6 +57,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     event IntentSubmitted(PoolId indexed poolId, Currency tokenIn, Currency tokenOut, address indexed user, bytes32 intentId);
     event IntentExecuted(PoolId indexed poolId, bytes32 indexed intentId, uint128 amountIn, uint128 amountOut);
     event Withdrawn(PoolId indexed poolId, Currency indexed currency, address indexed user, address recipient, uint256 amount);
+    event BatchCreated(bytes32 indexed batchId, PoolId indexed poolId, uint256 intentCount);
+    event BatchSettled(bytes32 indexed batchId, uint256 matchedCount, uint256 netCount);
 
     // =============================================================
     //                          LIBRARIES
@@ -85,6 +86,26 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         uint64 deadline;         // Expiration timestamp
         bool processed;          // Whether intent has been executed
         address[] selectedOperators; // Operators allowed to decrypt this intent
+        bytes32 batchId;         // Batch this intent belongs to
+    }
+    
+    /**
+     * @dev Batch tracking for atomic settlement
+     */
+    struct Batch {
+        bytes32[] intentIds;
+        uint256 createdAt;
+        uint256 settledAt;
+        BatchStatus status;
+        PoolId poolId;
+        PoolKey poolKey; // Store the pool key for swap execution
+    }
+    
+    enum BatchStatus {
+        Collecting,
+        Processing,
+        Settled,
+        Cancelled
     }
 
     // =============================================================
@@ -110,15 +131,17 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     /// @dev Per-pool reserves backing encrypted tokens: poolId => currency => amount
     mapping(PoolId => mapping(Currency => uint256)) public poolReserves;
     
-    /// @dev Per-pool intent queues: poolId => Queue
-    mapping(PoolId => Queue) public poolIntentQueues;
-    
     /// @dev Global intent storage: intentId => Intent
     mapping(bytes32 => Intent) public intents;
     
-    /// @dev Maps encrypted amount handle to intent ID for queue processing
-    /// Similar to MarketOrder's userOrders mapping
-    mapping(PoolId => mapping(uint256 => bytes32)) public handleToIntentId;
+    /// @dev Batch management
+    mapping(bytes32 => Batch) public batches;
+    mapping(PoolId => bytes32) public currentBatchId; // Current collecting batch per pool
+    mapping(PoolId => uint256) public lastBatchBlock; // Block when current batch started collecting
+    mapping(bytes32 => bool) public processedBatches;
+    
+    /// @dev Configuration
+    uint256 public batchBlockInterval = 5; // Process batch every N blocks
 
     // =============================================================
     //                        CONSTRUCTOR
@@ -161,14 +184,6 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     //                      ADMIN FUNCTIONS
     // =============================================================
     
-    /**
-     * @dev Set the SwapManager AVS contract address (only owner/deployer can call)
-     * @param _swapManager The SwapManager contract address
-     */
-    function setSwapManager(address _swapManager) external {
-        // In production, add proper access control
-        swapManager = ISwapManager(_swapManager);
-    }
     
     // =============================================================
     //                      CORE FUNCTIONS
@@ -245,28 +260,12 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         // Transfer encrypted tokens from user to hook as collateral
         inputToken.transferFromEncrypted(msg.sender, address(this), amount);
         
-        // Get selected operators from AVS (if SwapManager is set)
-        address[] memory selectedOperators;
-        if (address(swapManager) != address(0)) {
-            // Create swap task and get selected operators
-            ISwapManager.SwapTask memory task = ISwapManager(swapManager).createNewSwapTask(
-                msg.sender,
-                Currency.unwrap(tokenIn),
-                Currency.unwrap(tokenOut),
-                abi.encode(euint128.unwrap(amount)),
-                deadline
-            );
-            selectedOperators = task.selectedOperators;
-            
-            // Grant decryption access to selected operators
-            for (uint256 i = 0; i < selectedOperators.length; i++) {
-                FHE.allow(amount, selectedOperators[i]);
-            }
-        } else {
-            // Fallback: If no SwapManager, use centralized decryption
-            FHE.decrypt(amount);
-            selectedOperators = new address[](0);
-        }
+        // For now, no operator selection per intent
+        // Operators will be selected when batch is finalized
+        address[] memory selectedOperators = new address[](0);
+        
+        // Get or create current batch for this pool (pass key for storage)
+        bytes32 batchId = _getOrCreateBatch(poolId, key);
         
         // Create and store intent
         bytes32 intentId = keccak256(abi.encode(msg.sender, block.timestamp, poolId));
@@ -277,16 +276,12 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             owner: msg.sender,
             deadline: deadline,
             processed: false,
-            selectedOperators: selectedOperators
+            selectedOperators: selectedOperators,
+            batchId: batchId
         });
         
-        // Store the handle-to-intent mapping (like MarketOrder's userOrders)
-        uint256 handle = euint128.unwrap(amount);
-        handleToIntentId[poolId][handle] = intentId;
-        
-        // Add encrypted amount to pool's intent queue (like MarketOrder pattern)
-        Queue queue = _getOrCreateQueue(poolId);
-        queue.push(amount);
+        // Add intent to current batch
+        batches[batchId].intentIds.push(intentId);
         
         emit IntentSubmitted(poolId, tokenIn, tokenOut, msg.sender, intentId);
     }
@@ -328,8 +323,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     function _beforeSwap(
         address sender,
         PoolKey calldata key,
-        SwapParams calldata params,
-        bytes calldata data
+        SwapParams calldata, // params
+        bytes calldata // data
     ) internal override onlyPoolManager() returns (bytes4, BeforeSwapDelta, uint24) {
         
         // Allow hook-initiated swaps to pass through
@@ -337,111 +332,161 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
         
-        // Process any ready intents for this pool
-        _processReadyIntents(key);
-        
-        // For privacy, we could block external swaps or allow them
-        // For now, let's allow external swaps but process intents first
+        // Regular swaps just pass through
+        // All batch processing happens in settleBatch
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     // =============================================================
-    //                      PRIVATE FUNCTIONS
+    //                    BATCH SETTLEMENT
     // =============================================================
     
     /**
-     * @dev Process decrypted intents for a specific pool (temporarily disabled)
+     * @dev Set the batch block interval (owner only)
      */
-    function _processReadyIntents(PoolKey calldata key) internal {
-        PoolId poolId = key.toId();
-        Queue queue = poolIntentQueues[poolId];
-        
-        // Process encrypted amounts from queue (following MarketOrder pattern)
-        while (!queue.isEmpty()) {
-            euint128 handle = queue.peek();
-            
-            // Check if decryption is ready (same as MarketOrder)
-            (uint128 amount, bool ready) = FHE.getDecryptResultSafe(handle);
-            
-            if (!ready) {
-                break; // Stop processing, decryption not ready
-            }
-            
-            // Amount is ready - pop from queue and execute
-            queue.pop();
-            
-            // Find the intent using the handle (like MarketOrder's userOrders lookup)
-            uint256 handleUnwrapped = euint128.unwrap(handle);
-            bytes32 intentId = handleToIntentId[poolId][handleUnwrapped];
-            
-            if (intentId != bytes32(0)) {
-                // Execute the intent with the decrypted amount
-                _executeIntent(key, intentId, amount);
-            }
-        }
+    function setBatchBlockInterval(uint256 _interval) external {
+        require(msg.sender == address(this), "Only owner"); // TODO: Add proper access control
+        require(_interval > 0 && _interval <= 100, "Invalid interval");
+        batchBlockInterval = _interval;
     }
-                
+    
     /**
-     * @dev Execute a single decrypted intent
+     * @dev Set the SwapManager address (owner only)
      */
-    function _executeIntent(
-        PoolKey calldata key,
-        bytes32 intentId,
-        uint128 amount
-    ) internal {
-        Intent storage intent = intents[intentId];
-        PoolId poolId = key.toId();
-        
-        // Determine swap direction
-        bool zeroForOne = intent.tokenIn == key.currency0;
-        
-        // Execute swap using hook's reserves
-        SwapParams memory swapParams = SwapParams({
-            zeroForOne: zeroForOne,
-            amountSpecified: -int256(uint256(amount)),
-            sqrtPriceLimitX96: zeroForOne ? 
-                TickMath.MIN_SQRT_PRICE + 1 : 
-                TickMath.MAX_SQRT_PRICE - 1
-        });
-        
-        BalanceDelta delta = poolManager.swap(key, swapParams, ZERO_BYTES);
-        
-        // Calculate output amount and settle with pool manager
-        uint128 outputAmount;
-        if (zeroForOne) {
-            // Swapping token0 for token1
-            outputAmount = uint128(uint256(int256(delta.amount1())));
-            // Hook owes token0 to pool, pool owes token1 to hook
-            key.currency0.settle(poolManager, address(this), amount, false);
-            key.currency1.take(poolManager, address(this), outputAmount, false);
-        } else {
-            // Swapping token1 for token0
-            outputAmount = uint128(uint256(int256(-delta.amount0())));
-            // Hook owes token1 to pool, pool owes token0 to hook
-            key.currency1.settle(poolManager, address(this), amount, false);
-            key.currency0.take(poolManager, address(this), outputAmount, false);
-        }
-        
-        // Update hook reserves
-        poolReserves[poolId][intent.tokenIn] -= amount;
-        poolReserves[poolId][intent.tokenOut] += outputAmount;
-        
-        // Mint encrypted output tokens to user using trivial encryption
-        IFHERC20 outputToken = poolEncryptedTokens[poolId][intent.tokenOut];
-        // Create output token if it doesn't exist
-        if (address(outputToken) == address(0)) {
-            outputToken = _getOrCreateEncryptedToken(poolId, intent.tokenOut);
-        }
-        euint128 encryptedOutput = FHE.asEuint128(outputAmount);
-        FHE.allowThis(encryptedOutput);
-        FHE.allow(encryptedOutput, address(outputToken));
-        outputToken.mintEncrypted(intent.owner, encryptedOutput);
-        
-        // Mark intent as processed
-        intent.processed = true;
-        
-        emit IntentExecuted(poolId, intentId, amount, outputAmount);
+    function setSwapManager(address _swapManager) external {
+        require(msg.sender == address(this), "Only owner"); // TODO: Add proper access control
+        swapManager = ISwapManager(_swapManager);
     }
+    
+    /**
+     * @dev Check if a batch is ready for processing
+     */
+    function isBatchReady(PoolId poolId) external view returns (bool) {
+        bytes32 batchId = currentBatchId[poolId];
+        if (batchId == bytes32(0)) return false;
+        
+        Batch memory batch = batches[batchId];
+        return batch.status == BatchStatus.Collecting && 
+               block.number >= lastBatchBlock[poolId] + batchBlockInterval;
+    }
+    
+    /**
+     * @dev Settlement function called by SwapManager after AVS consensus
+     * The Hook already holds all tokens from users who submitted intents
+     * @param batchId The batch to settle
+     * @param internalizedTransfers Direct token transfers from internalized matching
+     * @param netSwap The single net swap with distribution info
+     * @param hasNetSwap Whether there's a net swap needed
+     */
+    function settleBatch(
+        bytes32 batchId,
+        ISwapManager.TokenTransfer[] calldata internalizedTransfers,
+        ISwapManager.NetSwap calldata netSwap,
+        bool hasNetSwap
+    ) external nonReentrant {
+        require(msg.sender == address(swapManager), "Only SwapManager");
+        require(batches[batchId].status == BatchStatus.Processing, "Invalid batch status");
+        require(!processedBatches[batchId], "Already processed");
+        
+        Batch storage batch = batches[batchId];
+        PoolId poolId = batch.poolId;
+        
+        // Step 1: Execute internalized transfers
+        // Hook already has custody of all tokens, just distribute them
+        for (uint256 i = 0; i < internalizedTransfers.length; i++) {
+            ISwapManager.TokenTransfer memory transfer = internalizedTransfers[i];
+            
+            // Get the encrypted token contract
+            IFHERC20 token = poolEncryptedTokens[poolId][Currency.wrap(transfer.token)];
+            
+            // Transfer from Hook to user (Hook already has the tokens)
+            token.transferFromEncrypted(address(this), transfer.user, transfer.amount);
+        }
+        
+        // Step 2: Process net swap through Uniswap pool if needed
+        // This is the residual amount that couldn't be internalized
+        if (hasNetSwap) {
+            _processNetSwap(batch.poolId, netSwap);
+        }
+        
+        // Mark batch as settled
+        batch.status = BatchStatus.Settled;
+        batch.settledAt = block.timestamp;
+        processedBatches[batchId] = true;
+        
+        // Mark all intents as processed
+        for (uint256 i = 0; i < batch.intentIds.length; i++) {
+            intents[batch.intentIds[i]].processed = true;
+        }
+        
+        emit BatchSettled(batchId, internalizedTransfers.length, hasNetSwap ? 1 : 0);
+    }
+    
+    /**
+     * @dev Get or create a batch for the pool
+     */
+    function _getOrCreateBatch(PoolId poolId, PoolKey memory key) internal returns (bytes32) {
+        bytes32 batchId = currentBatchId[poolId];
+        
+        // Check if we need a new batch (block interval passed or first batch)
+        if (batchId == bytes32(0) || 
+            block.number >= lastBatchBlock[poolId] + batchBlockInterval) {
+            
+            // Finalize previous batch if exists
+            if (batchId != bytes32(0) && batches[batchId].status == BatchStatus.Collecting) {
+                batches[batchId].status = BatchStatus.Processing;
+                
+                // Notify SwapManager to process this batch (even if empty)
+                if (address(swapManager) != address(0)) {
+                    // Encode batch data for operators
+                    bytes memory batchData = abi.encode(
+                        batches[batchId].intentIds,
+                        batches[batchId].poolKey
+                    );
+                    swapManager.finalizeBatch(batchId, batchData);
+                }
+            }
+            
+            // Create new batch
+            batchId = keccak256(abi.encode(poolId, block.number, block.timestamp));
+            batches[batchId] = Batch({
+                intentIds: new bytes32[](0),
+                createdAt: block.timestamp,
+                settledAt: 0,
+                status: BatchStatus.Collecting,
+                poolId: poolId,
+                poolKey: key
+            });
+            
+            currentBatchId[poolId] = batchId;
+            lastBatchBlock[poolId] = block.number;
+            
+            emit BatchCreated(batchId, poolId, 0);
+        }
+        
+        return batchId;
+    }
+    
+    /**
+     * @dev Process the net swap through the Uniswap pool and distribute output
+     */
+    function _processNetSwap(PoolId poolId, ISwapManager.NetSwap memory netSwap) internal {
+        // Get the pool key from the current batch
+        bytes32 batchId = currentBatchId[poolId];
+        require(batchId != bytes32(0), "No active batch");
+        PoolKey memory key = batches[batchId].poolKey;
+        
+        // Prepare data for unlockCallback
+        bytes memory unlockData = abi.encode(
+            key,
+            netSwap,
+            poolId
+        );
+        
+        // Execute via PoolManager unlock to handle swap
+        poolManager.unlock(unlockData);
+    }
+    
     
     // =============================================================
     //                      HELPER FUNCTIONS
@@ -477,13 +522,6 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         return existing;
     }
     
-    function _getOrCreateQueue(PoolId poolId) internal returns (Queue) {
-        if (address(poolIntentQueues[poolId]) == address(0)) {
-            poolIntentQueues[poolId] = new Queue();
-        }
-        return poolIntentQueues[poolId];
-    }
-    
     function _getCurrencySymbol(Currency currency) internal view returns (string memory) {
         // Try to get the symbol from the ERC20 token
         try IERC20Metadata(Currency.unwrap(currency)).symbol() returns (string memory symbol) {
@@ -503,7 +541,76 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     // =============================================================
     
     function unlockCallback(bytes calldata data) external override onlyPoolManager returns (bytes memory) {
-        // This can be used for batched operations if needed
+        // Decode the net swap data
+        (PoolKey memory key, ISwapManager.NetSwap memory netSwap, PoolId poolId) = 
+            abi.decode(data, (PoolKey, ISwapManager.NetSwap, PoolId));
+        
+        // The netAmount is already decrypted by AVS
+        uint256 amountIn = netSwap.netAmount;
+        
+        // Execute swap with EXACT INPUT (negative amount in V4)
+        SwapParams memory swapParams = SwapParams({
+            zeroForOne: netSwap.isZeroForOne,
+            amountSpecified: -int256(amountIn),  // Negative for exact input
+            sqrtPriceLimitX96: netSwap.isZeroForOne ? 
+                TickMath.MIN_SQRT_PRICE + 1 : 
+                TickMath.MAX_SQRT_PRICE - 1
+        });
+        
+        BalanceDelta delta = poolManager.swap(key, swapParams, ZERO_BYTES);
+        
+        // Read signed deltas
+        int128 d0 = delta.amount0();
+        int128 d1 = delta.amount1();
+        
+        // Settle what we owe (negative), take what we're owed (positive)
+        if (d0 < 0) {
+            key.currency0.settle(poolManager, address(this), uint128(-d0), false);
+        }
+        if (d1 < 0) {
+            key.currency1.settle(poolManager, address(this), uint128(-d1), false);
+        }
+        if (d0 > 0) {
+            key.currency0.take(poolManager, address(this), uint128(d0), false);
+        }
+        if (d1 > 0) {
+            key.currency1.take(poolManager, address(this), uint128(d1), false);
+        }
+        
+        // Calculate output amount from the positive delta
+        uint256 outputAmount;
+        Currency outputCurrency = Currency.wrap(netSwap.tokenOut);
+        if (outputCurrency == key.currency0) {
+            require(d0 > 0, "No token0 output");
+            outputAmount = uint128(d0);
+        } else {
+            require(d1 > 0, "No token1 output");
+            outputAmount = uint128(d1);
+        }
+        
+        // Update hook reserves
+        poolReserves[poolId][Currency.wrap(netSwap.tokenIn)] -= amountIn;
+        poolReserves[poolId][outputCurrency] += outputAmount;
+        
+        // Mint encrypted output tokens and distribute to recipients
+        IFHERC20 outputToken = poolEncryptedTokens[poolId][outputCurrency];
+        require(address(outputToken) != address(0), "Output token not exists");
+        
+        // Mint the total output as encrypted tokens to the hook first
+        euint128 encryptedOutput = FHE.asEuint128(outputAmount);
+        FHE.allowThis(encryptedOutput);
+        FHE.allow(encryptedOutput, address(outputToken));
+        outputToken.mintEncrypted(address(this), encryptedOutput);
+        
+        // Distribute to recipients according to their amounts
+        for (uint256 i = 0; i < netSwap.recipients.length; i++) {
+            outputToken.transferFromEncrypted(
+                address(this), 
+                netSwap.recipients[i], 
+                netSwap.recipientAmounts[i]
+            );
+        }
+        
         return ZERO_BYTES;
     }
 }
