@@ -48,11 +48,11 @@ coverage/
 pnpm-lock.yaml
 */pnpm-lock.yaml
 
-# AVS specific (hello-world-avs)
-hello-world-avs/.forge-snapshots/
-hello-world-avs/lib/
-hello-world-avs/cache/
-hello-world-avs/broadcast/
+# AVS specific (swap-manager-avs)
+swap-manager-avs/.forge-snapshots/
+swap-manager-avs/lib/
+swap-manager-avs/cache/
+swap-manager-avs/broadcast/
 
 # Universal Privacy Hook specific
 universal-privacy-hook/cache/

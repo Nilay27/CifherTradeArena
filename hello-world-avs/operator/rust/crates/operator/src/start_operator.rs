@@ -17,13 +17,13 @@ use eigensdk::common::{get_provider, get_signer, get_ws_provider};
 use eigensdk::logging::{get_logger, init_logger, log_level::LogLevel};
 use eyre::Result;
 use futures::StreamExt;
-use hello_world_utils::ecdsastakeregistry::ECDSAStakeRegistry;
-use hello_world_utils::{
+use swap_manager_utils::ecdsastakeregistry::ECDSAStakeRegistry;
+use swap_manager_utils::{
     ecdsastakeregistry::ISignatureUtilsMixinTypes::SignatureWithSaltAndExpiry,
-    helloworldservicemanager::{HelloWorldServiceManager, IHelloWorldServiceManager::Task},
+    SwapManager::{SwapManager, ISwapManager::Task},
 };
-use hello_world_utils::{
-    get_anvil_eigenlayer_deployment_data, get_hello_world_service_manager,
+use swap_manager_utils::{
+    get_anvil_eigenlayer_deployment_data, get_swap_manager_service_manager,
     get_stake_registry_address,
 };
 use rand::{Rng, TryRngCore};
@@ -73,14 +73,14 @@ async fn sign_and_respond_to_task(
         &format!("Signing and responding to task: {task_index:?}"),
         "",
     );
-    let hello_world_contract_address: Address = get_hello_world_service_manager()?;
-    let hello_world_contract = HelloWorldServiceManager::new(hello_world_contract_address, &pr);
+    let swap_manager_contract_address: Address = get_swap_manager_service_manager()?;
+    let swap_manager_contract = SwapManager::new(swap_manager_contract_address, &pr);
 
     let task = Task {
         name,
         taskCreatedBlock: task_created_block,
     };
-    let response_hash = hello_world_contract
+    let response_hash = swap_manager_contract
         .respondToTask(task, task_index, signature_data.into())
         .gas(500000)
         .send()
@@ -97,21 +97,21 @@ async fn sign_and_respond_to_task(
 
 /// Monitor new tasks
 async fn monitor_new_tasks(rpc_url: &str, private_key: &str) -> Result<()> {
-    let hello_world_contract_address: Address = get_hello_world_service_manager()?;
+    let swap_manager_contract_address: Address = get_swap_manager_service_manager()?;
 
     let ws_provider = get_ws_provider(&WS_URL).await?;
 
     // Subscribe to NewTaskCreated events
     let filter = Filter::new()
-        .address(hello_world_contract_address)
-        .event_signature(HelloWorldServiceManager::NewTaskCreated::SIGNATURE_HASH)
+        .address(swap_manager_contract_address)
+        .event_signature(SwapManager::NewTaskCreated::SIGNATURE_HASH)
         .from_block(BlockNumberOrTag::Latest);
     let mut new_task_stream = ws_provider.subscribe_logs(&filter).await?.into_stream();
 
     // Process tasks when a new event is detected
     while let Some(log) = new_task_stream.next().await {
-        if let Ok(decoded) = log.log_decode::<HelloWorldServiceManager::NewTaskCreated>() {
-            let HelloWorldServiceManager::NewTaskCreated { taskIndex, task } = decoded.inner.data;
+        if let Ok(decoded) = log.log_decode::<SwapManager::NewTaskCreated>() {
+            let SwapManager::NewTaskCreated { taskIndex, task } = decoded.inner.data;
             get_logger().info(
                 &format!(
                     "New task {} detected at block {}",
@@ -149,7 +149,7 @@ async fn monitor_new_tasks(rpc_url: &str, private_key: &str) -> Result<()> {
 /// Monitor new tasks using polling
 async fn monitor_new_tasks_polling(rpc_url: &str, private_key: &str) -> Result<()> {
     let pr = get_signer(private_key, rpc_url);
-    let hello_world_contract_address: Address = get_hello_world_service_manager()?;
+    let swap_manager_contract_address: Address = get_swap_manager_service_manager()?;
     let mut latest_processed_block = pr.get_block_number().await?;
 
     loop {
@@ -163,15 +163,15 @@ async fn monitor_new_tasks_polling(rpc_url: &str, private_key: &str) -> Result<(
         );
 
         let filter = Filter::new()
-            .address(hello_world_contract_address)
+            .address(swap_manager_contract_address)
             .from_block(BlockNumberOrTag::Number(latest_processed_block))
             .to_block(BlockNumberOrTag::Number(current_block));
 
         let logs = pr.get_logs(&filter).await?;
 
         for log in logs {
-            if let Some(&HelloWorldServiceManager::NewTaskCreated::SIGNATURE_HASH) = log.topic0() {
-                let HelloWorldServiceManager::NewTaskCreated { taskIndex, task } = log
+            if let Some(&SwapManager::NewTaskCreated::SIGNATURE_HASH) = log.topic0() {
+                let SwapManager::NewTaskCreated { taskIndex, task } = log
                     .log_decode()
                     .expect("Failed to decode log new task created")
                     .inner
@@ -272,11 +272,11 @@ pub async fn register_operator(rpc_url: &str, private_key: &str) -> Result<()> {
     let now = Utc::now().timestamp();
     let expiry: U256 = U256::from(now + 3600);
 
-    let hello_world_contract_address: Address = get_hello_world_service_manager()?;
+    let swap_manager_contract_address: Address = get_swap_manager_service_manager()?;
     let digest_hash = elcontracts_reader_instance
         .calculate_operator_avs_registration_digest_hash(
             signer.address(),
-            hello_world_contract_address,
+            swap_manager_contract_address,
             salt,
             expiry,
         )
@@ -293,7 +293,7 @@ pub async fn register_operator(rpc_url: &str, private_key: &str) -> Result<()> {
     let registeroperator_details_call = contract_ecdsa_stake_registry
         .registerOperatorWithSignature(operator_signature, signer.clone().address())
         .gas(500000);
-    let register_hello_world_hash = registeroperator_details_call
+    let register_swap_manager_hash = registeroperator_details_call
         .send()
         .await?
         .get_receipt()
@@ -304,7 +304,7 @@ pub async fn register_operator(rpc_url: &str, private_key: &str) -> Result<()> {
         &format!(
             "Operator registered on AVS successfully :{} , tx_hash :{}",
             signer.address(),
-            register_hello_world_hash
+            register_swap_manager_hash
         ),
         "",
     );

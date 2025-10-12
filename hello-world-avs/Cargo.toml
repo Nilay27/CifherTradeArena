@@ -8,7 +8,7 @@ version = "0.0.1-alpha"
 edition = "2021"
 authors = ["Eigen Layer contributors"]
 rust-version = "1.80"
-repository = "https://github.com/Layr-Labs/hello-world-avs"
+repository = "https://github.com/Layr-Labs/swap-manager-avs"
 homepage = ""
 license-file = "LICENSE"
 
@@ -37,8 +37,8 @@ tokio = { version = "1.37.0", features = [
 
 serde = "1.0.214"
 
-hello-world-avs-operator = { path = "operator/rust/crates/operator" }
-hello-world-utils = { path = "operator/rust/crates/utils" }
+swap-manager-avs-operator = { path = "operator/rust/crates/operator" }
+swap-manager-utils = { path = "operator/rust/crates/utils" }
 
 alloy = { version = "0.13", features = ["full"] }
 eigensdk = { version = "=1.0.0-rc.0", features = ["full"] }

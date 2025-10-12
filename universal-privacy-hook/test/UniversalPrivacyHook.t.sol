@@ -24,11 +24,16 @@ import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 // FHE Imports  
 import {FHE, InEuint128, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
+import {ACL} from "@fhenixprotocol/cofhe-mock-contracts/ACL.sol";
 
 // Privacy Hook Imports
 import {UniversalPrivacyHook} from "../src/privacy/UniversalPrivacyHook.sol";
 import {IFHERC20} from "../src/privacy/interfaces/IFHERC20.sol";
 import {HybridFHERC20} from "../src/privacy/HybridFHERC20.sol";
+
+// AVS Imports for testing integration
+import {ISwapManager} from "../src/privacy/interfaces/ISwapManager.sol";
+import {MockSwapManager} from "./mocks/MockSwapManager.sol";
 
 contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
     using PoolIdLibrary for PoolKey;
@@ -43,6 +48,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
 
     // Contracts
     UniversalPrivacyHook hook;
+    MockSwapManager swapManager;
     MockERC20 usdc;
     MockERC20 usdt;
     PoolKey poolKey;
@@ -111,6 +117,102 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
         assertEq(address(poolKey.hooks), address(hook));
         
         console.log("Pool created: USDC/USDT with UniversalPrivacyHook");
+    }
+
+    function testEncryptedTokenMetadata() public {
+        console.log("Testing Encrypted Token Metadata Generation");
+        
+        // First deposit to trigger encrypted token creation
+        vm.prank(alice);
+        hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
+        
+        // Get the encrypted USDC token
+        IFHERC20 encryptedUSDC = hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdc)));
+        assertTrue(address(encryptedUSDC) != address(0), "Encrypted USDC token should be created");
+        
+        // Check the metadata of the encrypted token
+        string memory name = HybridFHERC20(address(encryptedUSDC)).name();
+        string memory symbol = HybridFHERC20(address(encryptedUSDC)).symbol();
+        uint8 decimals = HybridFHERC20(address(encryptedUSDC)).decimals();
+        
+        // Verify the name and symbol are correctly generated
+        assertEq(name, "Encrypted USDC", "Name should be 'Encrypted USDC'");
+        assertEq(symbol, "eUSDC", "Symbol should be 'eUSDC'");
+        assertEq(decimals, 18, "Decimals should be 18 for encrypted tokens");
+        
+        console.log("Encrypted token name:", name);
+        console.log("Encrypted token symbol:", symbol);
+        console.log("Encrypted token decimals:", decimals);
+        
+        // Now deposit USDT to test second token metadata
+        vm.prank(bob);
+        usdt.mint(bob, DEPOSIT_AMOUNT);
+        vm.prank(bob);
+        usdt.approve(address(hook), DEPOSIT_AMOUNT);
+        vm.prank(bob);
+        hook.deposit(poolKey, Currency.wrap(address(usdt)), DEPOSIT_AMOUNT);
+        
+        // Get the encrypted USDT token
+        IFHERC20 encryptedUSDT = hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdt)));
+        assertTrue(address(encryptedUSDT) != address(0), "Encrypted USDT token should be created");
+        
+        // Check the metadata of the encrypted USDT token
+        string memory nameUSDT = HybridFHERC20(address(encryptedUSDT)).name();
+        string memory symbolUSDT = HybridFHERC20(address(encryptedUSDT)).symbol();
+        uint8 decimalsUSDT = HybridFHERC20(address(encryptedUSDT)).decimals();
+        
+        // Verify the name and symbol are correctly generated for USDT
+        assertEq(nameUSDT, "Encrypted USDT", "Name should be 'Encrypted USDT'");
+        assertEq(symbolUSDT, "eUSDT", "Symbol should be 'eUSDT'");
+        assertEq(decimalsUSDT, 18, "Decimals should be 18 for encrypted tokens");
+        
+        console.log("Encrypted USDT token name:", nameUSDT);
+        console.log("Encrypted USDT token symbol:", symbolUSDT);
+        console.log("Encrypted USDT token decimals:", decimalsUSDT);
+    }
+
+    function testEncryptedTokenMetadataWithFallback() public {
+        console.log("Testing Encrypted Token Metadata with Fallback for Non-ERC20Metadata Tokens");
+        
+        // Create a mock token without metadata support
+        MockERC20 basicToken = new MockERC20("", "", 18); // Empty name/symbol
+        MockERC20 anotherToken = new MockERC20("Another", "ANTH", 18);
+        
+        // Create a new pool with the basic token
+        PoolKey memory testPoolKey = PoolKey(
+            Currency.wrap(address(basicToken)),
+            Currency.wrap(address(anotherToken)),
+            3000,
+            60,
+            IHooks(hook)
+        );
+        
+        // Initialize the pool
+        manager.initialize(testPoolKey, SQRT_PRICE_1_1);
+        
+        // Mint and approve tokens
+        basicToken.mint(alice, DEPOSIT_AMOUNT);
+        vm.prank(alice);
+        basicToken.approve(address(hook), DEPOSIT_AMOUNT);
+        
+        // Deposit to trigger encrypted token creation
+        vm.prank(alice);
+        hook.deposit(testPoolKey, Currency.wrap(address(basicToken)), DEPOSIT_AMOUNT);
+        
+        // Get the encrypted token
+        PoolId testPoolId = testPoolKey.toId();
+        IFHERC20 encryptedBasicToken = hook.poolEncryptedTokens(testPoolId, Currency.wrap(address(basicToken)));
+        
+        // Check metadata - should use fallback "TOKEN" when symbol() fails/returns empty
+        string memory symbol = HybridFHERC20(address(encryptedBasicToken)).symbol();
+        string memory name = HybridFHERC20(address(encryptedBasicToken)).name();
+        
+        // The symbol should be "eTOKEN" due to fallback
+        assertEq(symbol, "eTOKEN", "Symbol should fallback to 'eTOKEN' when token doesn't have proper metadata");
+        assertEq(name, "Encrypted TOKEN", "Name should fallback to 'Encrypted TOKEN'");
+        
+        console.log("Fallback encrypted token name:", name);
+        console.log("Fallback encrypted token symbol:", symbol);
     }
 
     function testUserDeposit() public {
@@ -476,5 +578,161 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheTest {
         console.log("Alice deposited", DEPOSIT_AMOUNT / 1e6, "USDC in each pool");
         console.log("Alice swapped 400 USDC for WETH in Pool 2");
         console.log("Bob deposited 1 WETH in Pool 2");
+    }
+
+    function testSwapManagerIntegration() public {
+        console.log("Testing SwapManager AVS Integration");
+        
+        // Deploy mock AVS contracts (using simple addresses for mocks)
+        address mockDelegationManager = address(0x1111);
+        address mockAVSDirectory = address(0x2222);
+        address mockStakeRegistry = address(0x3333);
+        address mockAllocationManager = address(0x4444);
+        
+        // Deploy a minimal mock stake registry
+        MockStakeRegistry mockRegistry = new MockStakeRegistry();
+        vm.etch(mockStakeRegistry, address(mockRegistry).code);
+        
+        // Deploy MockSwapManager (simulating AVS)
+        swapManager = new MockSwapManager(
+            mockAVSDirectory,
+            mockStakeRegistry,
+            mockDelegationManager,
+            mockAllocationManager,
+            100 // MAX_RESPONSE_INTERVAL_BLOCKS
+        );
+        
+        // Initialize SwapManager
+        address owner = address(0x9999);
+        swapManager.initialize(owner, owner);
+        
+        // Set SwapManager in hook
+        hook.setSwapManager(address(swapManager));
+        
+        // Step 1: Alice deposits USDC
+        vm.prank(alice);
+        hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
+        
+        // Step 2: Get the task count before submitting
+        uint256 taskCountBefore = swapManager.getTaskCount();
+        console.log("Task count before submit:", taskCountBefore);
+        
+        // Step 3: Alice submits encrypted swap intent
+        vm.startPrank(alice);
+        InEuint128 memory encryptedSwapAmount = createInEuint128(uint128(SWAP_AMOUNT), alice);
+        
+        // This should trigger SwapManager.createNewSwapTask
+        hook.submitIntent(
+            poolKey,
+            Currency.wrap(address(usdc)),
+            Currency.wrap(address(usdt)),
+            encryptedSwapAmount,
+            uint64(block.timestamp + 1 hours)
+        );
+        vm.stopPrank();
+        
+        // Step 4: Verify SwapManager received the task
+        uint256 taskCountAfter = swapManager.getTaskCount();
+        console.log("Task count after submit:", taskCountAfter);
+        assertEq(taskCountAfter, taskCountBefore + 1, "Task count should increment");
+        
+        // Get the task hash and verify it was stored
+        bytes32 taskHash = swapManager.allTaskHashes(taskCountAfter);
+        assertTrue(taskHash != bytes32(0), "Task hash should be stored");
+        
+        console.log("[OK] Intent submitted to UniversalPrivacyHook");
+        console.log("[OK] SwapManager.createNewSwapTask was called");
+        console.log("[OK] Task created with index:", taskCountAfter);
+        console.log("[OK] Task hash:", uint256(taskHash));
+    }
+    
+    function testOperatorBasedDecryption() public {
+        console.log("Testing Operator-Based FHE Decryption");
+        
+        // Deploy mock AVS contracts
+        address mockDelegationManager = address(0x1111);
+        address mockAVSDirectory = address(0x2222);
+        address mockStakeRegistry = address(0x3333);
+        address mockAllocationManager = address(0x4444);
+        
+        // Deploy MockSwapManager
+        swapManager = new MockSwapManager(
+            mockAVSDirectory,
+            mockStakeRegistry,
+            mockDelegationManager,
+            mockAllocationManager,
+            100
+        );
+        
+        // Initialize and set SwapManager
+        swapManager.initialize(address(0x9999), address(0x9999));
+        hook.setSwapManager(address(swapManager));
+        
+        // Alice deposits USDC
+        vm.prank(alice);
+        hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
+        
+        // Alice submits encrypted swap intent
+        vm.startPrank(alice);
+        InEuint128 memory encryptedSwapAmount = createInEuint128(uint128(SWAP_AMOUNT), alice);
+        
+        // Submit intent - this should grant access to selected operators
+        hook.submitIntent(
+            poolKey,
+            Currency.wrap(address(usdc)),
+            Currency.wrap(address(usdt)),
+            encryptedSwapAmount,
+            uint64(block.timestamp + 1 hours)
+        );
+        vm.stopPrank();
+        
+        // Get the created task
+        ISwapManager.SwapTask memory task = swapManager.getTask(1);
+        
+        // Verify operators were selected
+        assertEq(task.selectedOperators.length, 3, "Should have 3 selected operators");
+        console.log("Selected operators:");
+        for (uint i = 0; i < task.selectedOperators.length; i++) {
+            console.log("-", task.selectedOperators[i]);
+        }
+        
+        // Verify the encrypted amount was stored
+        assertTrue(task.encryptedAmount.length > 0, "Encrypted amount should be stored");
+        
+        // Decode the encrypted handle from the task's encrypted amount
+        uint256 encryptedHandle = abi.decode(task.encryptedAmount, (uint256));
+        console.log("Encrypted handle:", encryptedHandle);
+        
+        // Get the ACL contract to check permissions
+        ACL aclContract = ACL(ACL_ADDRESS);
+        
+        // Verify that selected operators have access to decrypt
+        console.log("Checking operator decryption access:");
+        for (uint i = 0; i < task.selectedOperators.length; i++) {
+            bool hasAccess = aclContract.isAllowed(encryptedHandle, task.selectedOperators[i]);
+            console.log("- Operator", task.selectedOperators[i], "has access:", hasAccess);
+            assertTrue(hasAccess, "Selected operator should have decryption access");
+        }
+        
+        // Verify that non-selected operators don't have access
+        address randomOperator = address(0xBEEF);
+        bool randomHasAccess = aclContract.isAllowed(encryptedHandle, randomOperator);
+        console.log("Random operator", randomOperator, "has access:", randomHasAccess);
+        assertFalse(randomHasAccess, "Non-selected operator should NOT have access");
+        
+        console.log("[OK] Operators selected for decryption");
+        console.log("[OK] FHE access granted to committee");
+        console.log("[OK] Access control verified - only selected operators can decrypt");
+    }
+}
+
+// Mock stake registry for testing
+contract MockStakeRegistry {
+    function operatorRegistered(address) external pure returns (bool) {
+        return false;
+    }
+    
+    function getOperatorWeightAtBlock(address, uint32) external pure returns (uint256) {
+        return 0;
     }
 }

@@ -8,10 +8,10 @@ use alloy::primitives::Address;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
-pub struct HelloWorldData {
+pub struct SwapManagerData {
     #[serde(rename = "lastUpdate")]
     pub last_update: LastUpdate,
-    pub addresses: HelloWorldAddresses,
+    pub addresses: SwapManagerAddresses,
 }
 
 #[derive(Deserialize, Debug)]
@@ -21,13 +21,13 @@ pub struct LastUpdate {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct HelloWorldAddresses {
+pub struct SwapManagerAddresses {
     #[serde(rename = "proxyAdmin")]
     pub proxy_admin: String,
-    #[serde(rename = "helloWorldServiceManager")]
-    pub hello_world_service_manager: String,
-    #[serde(rename = "helloWorldServiceManagerImpl")]
-    pub hello_world_service_manager_impl: String,
+    #[serde(rename = "SwapManager")]
+    pub swap_manager_service_manager: String,
+    #[serde(rename = "SwapManagerImpl")]
+    pub swap_manager_service_manager_impl: String,
     #[serde(rename = "stakeRegistry")]
     pub stake_registry: String,
     #[serde(rename = "stakeRegistryImpl")]
@@ -79,23 +79,23 @@ pub fn get_anvil_eigenlayer_deployment_data() -> eyre::Result<EigenLayerData> {
     Ok(el_parsed)
 }
 
-pub fn get_anvil_hello_world_deployment_data() -> eyre::Result<HelloWorldData> {
+pub fn get_anvil_swap_manager_deployment_data() -> eyre::Result<SwapManagerData> {
     let file_path = Path::new(&env!("CARGO_MANIFEST_DIR").to_string())
-        .join("../../../../contracts/deployments/hello-world/31337.json");
+        .join("../../../../contracts/deployments/swap-manager/31337.json");
     let data = std::fs::read_to_string(file_path)?;
-    let parsed_data: HelloWorldData = serde_json::from_str(&data)?;
+    let parsed_data: SwapManagerData = serde_json::from_str(&data)?;
     Ok(parsed_data)
 }
 
-pub fn get_hello_world_service_manager() -> eyre::Result<Address> {
-    let data = get_anvil_hello_world_deployment_data()?;
-    let hello_world_contract_address: Address =
-        data.addresses.hello_world_service_manager.parse()?;
-    Ok(hello_world_contract_address)
+pub fn get_swap_manager_service_manager() -> eyre::Result<Address> {
+    let data = get_anvil_swap_manager_deployment_data()?;
+    let swap_manager_contract_address: Address =
+        data.addresses.swap_manager_service_manager.parse()?;
+    Ok(swap_manager_contract_address)
 }
 
 pub fn get_stake_registry_address() -> eyre::Result<Address> {
-    let data = get_anvil_hello_world_deployment_data()?;
+    let data = get_anvil_swap_manager_deployment_data()?;
     let stake_registry_address: Address = data.addresses.stake_registry.parse()?;
     Ok(stake_registry_address)
 }

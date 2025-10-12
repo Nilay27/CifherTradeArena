@@ -23,9 +23,9 @@ deploy-eigenlayer-contracts:
 	@chmod +x ./contracts/anvil/deploy-el.sh
 	./contracts/anvil/deploy-el.sh
 
-deploy-helloworld-contracts:
-	@chmod +x ./contracts/anvil/deploy-helloworld.sh
-	./contracts/anvil/deploy-helloworld.sh
+deploy-swapmanager-contracts:
+	@chmod +x ./contracts/anvil/deploy-swapmanager.sh
+	./contracts/anvil/deploy-swapmanager.sh
 
 generate-bindings:
 	cd contracts && forge build --force --skip test --skip script
@@ -33,7 +33,7 @@ generate-bindings:
 	forge bind --alloy --skip-build --overwrite --module \
 		--root contracts/  \
 		--bindings-path ${RUST_BINDINGS_PATH} \
-		--select '^ECDSAStakeRegistry$$' --select '^HelloWorldServiceManager$$'
+		--select '^ECDSAStakeRegistry$$' --select '^SwapManager$$'
 
 __CLI__: ##
 
@@ -68,7 +68,7 @@ start-rust-challenger: ## start challenger (part of quickstart)
 
 __REWARDS__: ##
 
-TOKEN_ADDRESS=$(shell jq -r '.addresses.token' contracts/deployments/hello-world/31337.json)
+TOKEN_ADDRESS=$(shell jq -r '.addresses.token' contracts/deployments/swap-manager/31337.json)
 
 create-avs-distributions-root:
 	npm run create-distributions-root

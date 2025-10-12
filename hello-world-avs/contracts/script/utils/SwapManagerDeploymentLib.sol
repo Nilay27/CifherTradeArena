@@ -9,7 +9,7 @@ import {console2} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {ECDSAStakeRegistry} from "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
-import {HelloWorldServiceManager} from "../../src/HelloWorldServiceManager.sol";
+import {SwapManager} from "../../src/SwapManager.sol";
 import {IDelegationManager} from "@eigenlayer/contracts/interfaces/IDelegationManager.sol";
 import {IECDSAStakeRegistryTypes} from
     "@eigenlayer-middleware/src/interfaces/IECDSAStakeRegistry.sol";
@@ -17,7 +17,7 @@ import {UpgradeableProxyLib} from "./UpgradeableProxyLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./CoreDeploymentParsingLib.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-library HelloWorldDeploymentLib {
+library SwapManagerDeploymentLib {
     using stdJson for *;
     using Strings for *;
     using UpgradeableProxyLib for address;
@@ -25,7 +25,7 @@ library HelloWorldDeploymentLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     struct DeploymentData {
-        address helloWorldServiceManager;
+        address SwapManager;
         address stakeRegistry;
         address strategy;
         address token;
@@ -49,7 +49,7 @@ library HelloWorldDeploymentLib {
 
         {
             // First, deploy upgradeable proxy contracts that will point to the implementations.
-            result.helloWorldServiceManager = UpgradeableProxyLib.setUpEmptyProxy(proxyAdmin);
+            result.SwapManager = UpgradeableProxyLib.setUpEmptyProxy(proxyAdmin);
             result.stakeRegistry = UpgradeableProxyLib.setUpEmptyProxy(proxyAdmin);
         }
         deployAndUpgradeStakeRegistryImpl(result, core, quorum);
@@ -67,7 +67,7 @@ library HelloWorldDeploymentLib {
             address(new ECDSAStakeRegistry(IDelegationManager(core.delegationManager)));
 
         bytes memory upgradeCall = abi.encodeCall(
-            ECDSAStakeRegistry.initialize, (deployment.helloWorldServiceManager, 0, quorum)
+            ECDSAStakeRegistry.initialize, (deployment.SwapManager, 0, quorum)
         );
         UpgradeableProxyLib.upgradeAndCall(deployment.stakeRegistry, stakeRegistryImpl, upgradeCall);
     }
@@ -78,9 +78,9 @@ library HelloWorldDeploymentLib {
         address owner,
         address rewardsInitiator
     ) private {
-        address helloWorldServiceManager = deployment.helloWorldServiceManager;
-        address helloWorldServiceManagerImpl = address(
-            new HelloWorldServiceManager(
+        address swapManagerProxy = deployment.SwapManager;
+        address SwapManagerImpl = address(
+            new SwapManager(
                 core.avsDirectory,
                 deployment.stakeRegistry,
                 core.rewardsCoordinator,
@@ -91,10 +91,10 @@ library HelloWorldDeploymentLib {
         );
 
         bytes memory upgradeCall =
-            abi.encodeCall(HelloWorldServiceManager.initialize, (owner, rewardsInitiator));
+            abi.encodeCall(SwapManager.initialize, (owner, rewardsInitiator));
 
         UpgradeableProxyLib.upgradeAndCall(
-            helloWorldServiceManager, helloWorldServiceManagerImpl, upgradeCall
+            swapManagerProxy, SwapManagerImpl, upgradeCall
         );
     }
 
@@ -110,13 +110,13 @@ library HelloWorldDeploymentLib {
     ) internal view returns (DeploymentData memory) {
         string memory fileName = string.concat(directoryPath, vm.toString(chainId), ".json");
 
-        require(vm.exists(fileName), "HelloWorldDeployment: Deployment file does not exist");
+        require(vm.exists(fileName), "SwapManagerDeployment: Deployment file does not exist");
 
         string memory json = vm.readFile(fileName);
 
         DeploymentData memory data;
         /// TODO: 2 Step for reading deployment json.  Read to the core and the AVS data
-        data.helloWorldServiceManager = json.readAddress(".addresses.helloWorldServiceManager");
+        data.SwapManager = json.readAddress(".addresses.SwapManager");
         data.stakeRegistry = json.readAddress(".addresses.stakeRegistry");
         data.strategy = json.readAddress(".addresses.strategy");
         data.token = json.readAddress(".addresses.token");
@@ -128,7 +128,7 @@ library HelloWorldDeploymentLib {
     function writeDeploymentJson(
         DeploymentData memory data
     ) internal {
-        writeDeploymentJson("deployments/hello-world/", block.chainid, data);
+        writeDeploymentJson("deployments/swap-manager/", block.chainid, data);
     }
 
     function writeDeploymentJson(
@@ -137,7 +137,7 @@ library HelloWorldDeploymentLib {
         DeploymentData memory data
     ) internal {
         address proxyAdmin =
-            address(UpgradeableProxyLib.getProxyAdmin(data.helloWorldServiceManager));
+            address(UpgradeableProxyLib.getProxyAdmin(data.SwapManager));
 
         string memory deploymentData = _generateDeploymentJson(data, proxyAdmin);
 
@@ -157,7 +157,7 @@ library HelloWorldDeploymentLib {
         string memory pathToFile = string.concat(directoryPath, fileName);
 
         require(
-            vm.exists(pathToFile), "HelloWorldDeployment: Deployment Config file does not exist"
+            vm.exists(pathToFile), "SwapManagerDeployment: Deployment Config file does not exist"
         );
 
         string memory json = vm.readFile(pathToFile);
@@ -200,10 +200,10 @@ library HelloWorldDeploymentLib {
         return string.concat(
             '{"proxyAdmin":"',
             proxyAdmin.toHexString(),
-            '","helloWorldServiceManager":"',
-            data.helloWorldServiceManager.toHexString(),
-            '","helloWorldServiceManagerImpl":"',
-            data.helloWorldServiceManager.getImplementation().toHexString(),
+            '","SwapManager":"',
+            data.SwapManager.toHexString(),
+            '","SwapManagerImpl":"',
+            data.SwapManager.getImplementation().toHexString(),
             '","stakeRegistry":"',
             data.stakeRegistry.toHexString(),
             '","stakeRegistryImpl":"',

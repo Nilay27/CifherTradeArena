@@ -3592,40 +3592,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "hello-world-avs-operator"
-version = "0.0.1-alpha"
-dependencies = [
- "alloy",
- "chrono",
- "dotenv",
- "eigensdk",
- "eyre",
- "futures",
- "futures-util",
- "hello-world-utils",
- "hex",
- "num-bigint 0.4.6",
- "rand 0.9.0",
- "reqwest 0.12.12",
- "serde",
- "serde_json",
- "serial_test",
- "testcontainers",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "hello-world-utils"
-version = "0.0.1-alpha"
-dependencies = [
- "alloy",
- "eyre",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6711,6 +6677,40 @@ dependencies = [
  "thiserror 1.0.69",
  "url",
  "zip",
+]
+
+[[package]]
+name = "swap-manager-avs-operator"
+version = "0.0.1-alpha"
+dependencies = [
+ "alloy",
+ "chrono",
+ "dotenv",
+ "eigensdk",
+ "eyre",
+ "futures",
+ "futures-util",
+ "hex",
+ "num-bigint 0.4.6",
+ "rand 0.9.0",
+ "reqwest 0.12.12",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "swap-manager-utils",
+ "testcontainers",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "swap-manager-utils"
+version = "0.0.1-alpha"
+dependencies = [
+ "alloy",
+ "eyre",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

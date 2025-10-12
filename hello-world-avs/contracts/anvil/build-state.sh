@@ -21,8 +21,8 @@ make build-contracts > /dev/null 2>&1
 echo "Deploying EigenLayer contracts."
 make deploy-eigenlayer-contracts > /dev/null 2>&1
 
-echo "Deploying HelloWorld contracts."
-make deploy-helloworld-contracts > /dev/null 2>&1
+echo "Deploying SwapManager contracts."
+make deploy-swapmanager-contracts > /dev/null 2>&1
 
 echo "Killed Anvil"
 kill $ANVIL_PID || true

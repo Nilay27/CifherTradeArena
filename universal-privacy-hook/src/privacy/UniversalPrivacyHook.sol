@@ -36,9 +36,12 @@ import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockC
 import {HybridFHERC20} from "./HybridFHERC20.sol";
 import {IFHERC20} from "./interfaces/IFHERC20.sol";
 import {Queue} from "../Queue.sol";
+import {ISwapManager} from "./interfaces/ISwapManager.sol";
 
 // Token & Security
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 // FHE
@@ -81,6 +84,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         address owner;           // User who submitted the intent
         uint64 deadline;         // Expiration timestamp
         bool processed;          // Whether intent has been executed
+        address[] selectedOperators; // Operators allowed to decrypt this intent
     }
 
     // =============================================================
@@ -96,6 +100,9 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     // =============================================================
     //                      STATE VARIABLES
     // =============================================================
+    
+    /// @dev AVS SwapManager for decentralized FHE decryption
+    ISwapManager public swapManager;
     
     /// @dev Per-pool encrypted token contracts: poolId => currency => IFHERC20
     mapping(PoolId => mapping(Currency => IFHERC20)) public poolEncryptedTokens;
@@ -150,6 +157,19 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         });
     }
 
+    // =============================================================
+    //                      ADMIN FUNCTIONS
+    // =============================================================
+    
+    /**
+     * @dev Set the SwapManager AVS contract address (only owner/deployer can call)
+     * @param _swapManager The SwapManager contract address
+     */
+    function setSwapManager(address _swapManager) external {
+        // In production, add proper access control
+        swapManager = ISwapManager(_swapManager);
+    }
+    
     // =============================================================
     //                      CORE FUNCTIONS
     // =============================================================
@@ -225,8 +245,28 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         // Transfer encrypted tokens from user to hook as collateral
         inputToken.transferFromEncrypted(msg.sender, address(this), amount);
         
-        // Start FHE decryption process for swap amount
-        FHE.decrypt(amount);
+        // Get selected operators from AVS (if SwapManager is set)
+        address[] memory selectedOperators;
+        if (address(swapManager) != address(0)) {
+            // Create swap task and get selected operators
+            ISwapManager.SwapTask memory task = ISwapManager(swapManager).createNewSwapTask(
+                msg.sender,
+                Currency.unwrap(tokenIn),
+                Currency.unwrap(tokenOut),
+                abi.encode(euint128.unwrap(amount)),
+                deadline
+            );
+            selectedOperators = task.selectedOperators;
+            
+            // Grant decryption access to selected operators
+            for (uint256 i = 0; i < selectedOperators.length; i++) {
+                FHE.allow(amount, selectedOperators[i]);
+            }
+        } else {
+            // Fallback: If no SwapManager, use centralized decryption
+            FHE.decrypt(amount);
+            selectedOperators = new address[](0);
+        }
         
         // Create and store intent
         bytes32 intentId = keccak256(abi.encode(msg.sender, block.timestamp, poolId));
@@ -236,7 +276,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             tokenOut: tokenOut,
             owner: msg.sender,
             deadline: deadline,
-            processed: false
+            processed: false,
+            selectedOperators: selectedOperators
         });
         
         // Store the handle-to-intent mapping (like MarketOrder's userOrders)
@@ -443,9 +484,18 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         return poolIntentQueues[poolId];
     }
     
-    function _getCurrencySymbol(Currency currency) internal pure returns (string memory) {
-        // This is a placeholder - in real implementation would query token metadata
-        return "TOKEN";
+    function _getCurrencySymbol(Currency currency) internal view returns (string memory) {
+        // Try to get the symbol from the ERC20 token
+        try IERC20Metadata(Currency.unwrap(currency)).symbol() returns (string memory symbol) {
+            // Check if symbol is empty and return fallback
+            if (bytes(symbol).length == 0) {
+                return "TOKEN";
+            }
+            return symbol;
+        } catch {
+            // Fallback if token doesn't implement symbol()
+            return "TOKEN";
+        }
     }
     
     // =============================================================

@@ -4,4 +4,4 @@
 //! Do not manually edit these files.
 //! These files may be overwritten by the codegen system at any time.
 pub mod r#ecdsastakeregistry;
-pub mod r#helloworldservicemanager;
+pub mod r#SwapManager;

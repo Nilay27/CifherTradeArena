@@ -1,5 +1,5 @@
 [package]
-name = "hello-world-utils"
+name = "swap-manager-utils"
 description = "Hello world avs operator start and spam utilities"
 
 version.workspace = true

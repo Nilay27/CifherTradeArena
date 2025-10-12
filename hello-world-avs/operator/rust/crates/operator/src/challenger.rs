@@ -16,11 +16,11 @@ use eigensdk::{
 };
 use eyre::{Ok, Result};
 use futures::StreamExt;
-use hello_world_utils::{
-    get_hello_world_service_manager,
-    helloworldservicemanager::{
-        HelloWorldServiceManager::{self},
-        IHelloWorldServiceManager::Task,
+use swap_manager_utils::{
+    get_swap_manager_service_manager,
+    SwapManager::{
+        SwapManager::{self},
+        ISwapManager::Task,
     },
 };
 use tokio::signal::{self};
@@ -52,10 +52,10 @@ impl Challenger {
         let signer = PrivateKeySigner::from_str(&private_key)?;
         let operator_address = signer.address();
 
-        let service_manager_address = get_hello_world_service_manager().unwrap();
+        let service_manager_address = get_swap_manager_service_manager().unwrap();
 
         let pr = get_provider(&rpc_url);
-        let service_manager_contract = HelloWorldServiceManager::new(service_manager_address, &pr);
+        let service_manager_contract = SwapManager::new(service_manager_address, &pr);
         let max_response_interval_blocks = service_manager_contract
             .MAX_RESPONSE_INTERVAL_BLOCKS()
             .call()
@@ -80,7 +80,7 @@ impl Challenger {
         // Subscribe to NewTaskCreated events
         let new_task_filter = Filter::new()
             .address(self.service_manager_address)
-            .event_signature(HelloWorldServiceManager::NewTaskCreated::SIGNATURE_HASH)
+            .event_signature(SwapManager::NewTaskCreated::SIGNATURE_HASH)
             .from_block(BlockNumberOrTag::Latest);
         let mut new_task_stream = ws_provider
             .subscribe_logs(&new_task_filter)
@@ -90,7 +90,7 @@ impl Challenger {
         // Subscribe to TaskResponded events
         let responded_filter = Filter::new()
             .address(self.service_manager_address)
-            .event_signature(HelloWorldServiceManager::TaskResponded::SIGNATURE_HASH)
+            .event_signature(SwapManager::TaskResponded::SIGNATURE_HASH)
             .from_block(BlockNumberOrTag::Latest);
         let mut responded_stream = ws_provider
             .subscribe_logs(&responded_filter)
@@ -103,13 +103,13 @@ impl Challenger {
         loop {
             tokio::select! {
                 Some(log) = new_task_stream.next() => {
-                    let decode = log.log_decode::<HelloWorldServiceManager::NewTaskCreated>().ok();
+                    let decode = log.log_decode::<SwapManager::NewTaskCreated>().ok();
                     if let Some(decoded) = decode {
                         self.handle_task_creation(decoded);
                     }
                 },
                 Some(log) = responded_stream.next() => {
-                    let decode = log.log_decode::<HelloWorldServiceManager::TaskResponded>().ok();
+                    let decode = log.log_decode::<SwapManager::TaskResponded>().ok();
                     if let Some(decoded) = decode {
                         self.handle_task_response(decoded);
                     }
@@ -128,7 +128,7 @@ impl Challenger {
     }
 
     /// Handle a new task creation and handle the time that an operator has to respond to the task
-    fn handle_task_creation(&mut self, decoded: Log<HelloWorldServiceManager::NewTaskCreated>) {
+    fn handle_task_creation(&mut self, decoded: Log<SwapManager::NewTaskCreated>) {
         let event = decoded.data().clone();
         let task_index = event.taskIndex;
         get_logger().info(
@@ -144,7 +144,7 @@ impl Challenger {
     }
 
     /// Handle a task response and cancel the timeout timer
-    fn handle_task_response(&mut self, decoded: Log<HelloWorldServiceManager::TaskResponded>) {
+    fn handle_task_response(&mut self, decoded: Log<SwapManager::TaskResponded>) {
         let event = decoded.data();
         let task_index = event.taskIndex;
 
@@ -179,7 +179,7 @@ impl Challenger {
     /// Execute the slashing of an operator
     async fn slash_operator(&self, task: Task, task_index: u32) -> Result<()> {
         let pr = get_signer(&KEY.to_string(), &self.rpc_url);
-        let hello_world_contract = HelloWorldServiceManager::new(self.service_manager_address, &pr);
+        let swap_manager_contract = SwapManager::new(self.service_manager_address, &pr);
 
         get_logger().info(
             &format!(
@@ -189,7 +189,7 @@ impl Challenger {
             "",
         );
 
-        let tx_result = hello_world_contract
+        let tx_result = swap_manager_contract
             .slashOperator(task, task_index, self.operator_address)
             .send()
             .await?;

@@ -9,7 +9,7 @@ anvil -q &
 
 # Deploy contracts
 make deploy-eigenlayer-contracts
-make deploy-helloworld-contracts
+make deploy-swapmanager-contracts
 
 # Check that at first, claimer balance in token is zero
 initialBalance=$(make claimer-account-token-balance | tail -n1 | tr -d '[:space:]')

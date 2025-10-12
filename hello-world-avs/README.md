@@ -4,14 +4,14 @@ Welcome to the Hello World AVS. This project shows you the simplest functionalit
 
 ## Architecture
 
-![hello-world-png](./assets/hello-world-diagramv2.png)
+![swap-manager-png](./assets/swap-manager-diagramv2.png)
 
 ### AVS User Flow
 
 1) AVS consumer requests a "Hello World" message to be generated and signed.
-2) HelloWorld contract receives the request and emits a NewTaskCreated event for the request.
+2) SwapManager contract receives the request and emits a NewTaskCreated event for the request.
 3) All Operators who are registered to the AVS and has staked, delegated assets takes this request. Operator generates the requested message, hashes it, and signs the hash with their private key.
-4) Each Operator submits their signed hash back to the HelloWorld AVS contract.
+4) Each Operator submits their signed hash back to the SwapManager AVS contract.
 5) If the Operator is registered to the AVS and has the minimum needed stake, the submission is accepted.
 
 That's it. This simple flow highlights some of the core mechanics of how AVSs work.
@@ -23,7 +23,7 @@ That's it. This simple flow highlights some of the core mechanics of how AVSs wo
 > For an example of the new workflow, check out the Incredible Squaring examples ([Go version here](https://github.com/Layr-Labs/incredible-squaring-avs), [Rust version here](https://github.com/Layr-Labs/incredible-squaring-avs-rs)).
 
 The example includes a simple slashing condition: "a task MUST be responded by enough operators before N blocks have passed since the task creation". You can modify the `OPERATOR_RESPONSE_PERCENTAGE` value in the `.env` file to adjust the chance of an operator responding to a task.
-In case this condition isn't satisfied by some operator, anyone can permissionlessly slash them via calling `HelloWorldServiceManager.slashOperator`.
+In case this condition isn't satisfied by some operator, anyone can permissionlessly slash them via calling `SwapManager.slashOperator`.
 
 For the [Rust example](#quick-start-rust), we have a `challenger` that listens for new tasks and checks whether the operators have responded. If not, `challenger` is authorized to slash the operator.
 
@@ -88,7 +88,10 @@ npm run build:forge
 npm run deploy:core
 
 # Deploy the Hello World AVS contracts
-npm run deploy:hello-world
+npm run deploy:swap-manager
+
+# Deploy the mock-hook contract
+npm run deploy:mock-hook
 
 # (Optional) Update ABIs
 npm run extract:abis
@@ -117,7 +120,7 @@ npm run start:anvil
 npm run deploy:core
 
 # Deploy the Hello World AVS contracts
-npm run deploy:hello-world
+npm run deploy:swap-manager
 
 ```
 
@@ -172,7 +175,7 @@ make build-contracts
 make deploy-eigenlayer-contracts
 
 # Deploy the Hello World AVS contracts
-make deploy-helloworld-contracts
+make deploy-swapmanager-contracts
 ```
 
 3. Start Challenge Manager
@@ -228,7 +231,7 @@ For help and support deploying and modifying this repo for your AVS, please:
 1. Open a ticket via the intercom link at [support.eigenlayer.xyz](https://support.eigenlayer.xyz).
 2. Include the necessary troubleshooting information for your environment:
   * Local anvil testing:
-    * Redeploy your local test using `--revert-strings debug` flag via the following commands and retest: `npm run deploy:core-debug && npm run deploy:hello-world-debug`
+    * Redeploy your local test using `--revert-strings debug` flag via the following commands and retest: `npm run deploy:core-debug && npm run deploy:swap-manager-debug`
     * Include the full stacktrace from your error as a .txt file attachment.
     * Create a minimal repo that demonstrates the behavior (fork or otherwise)
     * Steps require to reproduce issue (compile and cause the error)
@@ -243,7 +246,7 @@ If you're planning to build an AVS and would like to speak with a member of the 
 ## Disclaimers
 
 - This repo is meant currently intended for _local anvil development testing_. Holesky deployment support will be added shortly.
-- Users who wish to build an AVS for Production purposes will want to migrate from the `ECDSAServiceManagerBase` implementation in `HelloWorldServiceManager.sol` to a BLS style architecture using [RegistryCoordinator](https://github.com/Layr-Labs/eigenlayer-middleware/blob/dev/docs/RegistryCoordinator.md).
+- Users who wish to build an AVS for Production purposes will want to migrate from the `ECDSAServiceManagerBase` implementation in `SwapManager.sol` to a BLS style architecture using [RegistryCoordinator](https://github.com/Layr-Labs/eigenlayer-middleware/blob/dev/docs/RegistryCoordinator.md).
 
 ## Appendix (Future Capabilities In Progress)
 

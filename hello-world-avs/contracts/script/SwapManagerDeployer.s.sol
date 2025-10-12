@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
-import {HelloWorldDeploymentLib} from "./utils/HelloWorldDeploymentLib.sol";
+import {SwapManagerDeploymentLib} from "./utils/SwapManagerDeploymentLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./utils/CoreDeploymentParsingLib.sol";
 import {UpgradeableProxyLib} from "./utils/UpgradeableProxyLib.sol";
 import {StrategyBase} from "@eigenlayer/contracts/strategies/StrategyBase.sol";
@@ -21,18 +21,18 @@ import {
 
 import "forge-std/Test.sol";
 
-contract HelloWorldDeployer is Script, Test {
+contract SwapManagerDeployer is Script, Test {
     using CoreDeployLib for *;
     using UpgradeableProxyLib for address;
 
-    address private deployer;
+    address internal deployer;
     address proxyAdmin;
     address rewardsOwner;
     address rewardsInitiator;
-    IStrategy helloWorldStrategy;
+    IStrategy swapManagerStrategy;
     CoreDeployLib.DeploymentData coreDeployment;
-    HelloWorldDeploymentLib.DeploymentData helloWorldDeployment;
-    HelloWorldDeploymentLib.DeploymentConfigData helloWorldConfig;
+    SwapManagerDeploymentLib.DeploymentData swapManagerDeployment;
+    SwapManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
     IECDSAStakeRegistryTypes.Quorum internal quorum;
     ERC20Mock token;
 
@@ -40,26 +40,26 @@ contract HelloWorldDeployer is Script, Test {
         deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
         vm.label(deployer, "Deployer");
 
-        helloWorldConfig =
-            HelloWorldDeploymentLib.readDeploymentConfigValues("config/hello-world/", block.chainid);
+        swapManagerConfig =
+            SwapManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
 
         coreDeployment =
             CoreDeploymentParsingLib.readDeploymentJson("deployments/core/", block.chainid);
     }
 
-    function run() external {
+    function run() external virtual {
         vm.startBroadcast(deployer);
-        rewardsOwner = helloWorldConfig.rewardsOwner;
-        rewardsInitiator = helloWorldConfig.rewardsInitiator;
+        rewardsOwner = swapManagerConfig.rewardsOwner;
+        rewardsInitiator = swapManagerConfig.rewardsInitiator;
 
         token = new ERC20Mock();
         // NOTE: if this fails, it's because the initialStrategyWhitelister is not set to be the StrategyFactory
-        helloWorldStrategy =
+        swapManagerStrategy =
             IStrategy(StrategyFactory(coreDeployment.strategyFactory).deployNewStrategy(token));
 
         quorum.strategies.push(
             IECDSAStakeRegistryTypes.StrategyParams({
-                strategy: helloWorldStrategy,
+                strategy: swapManagerStrategy,
                 multiplier: 10_000
             })
         );
@@ -67,32 +67,32 @@ contract HelloWorldDeployer is Script, Test {
         token.mint(deployer, 2000);
         token.increaseAllowance(address(coreDeployment.strategyManager), 1000);
         StrategyManager(coreDeployment.strategyManager).depositIntoStrategy(
-            helloWorldStrategy, token, 1000
+            swapManagerStrategy, token, 1000
         );
 
         proxyAdmin = UpgradeableProxyLib.deployProxyAdmin();
 
-        helloWorldDeployment = HelloWorldDeploymentLib.deployContracts(
+        swapManagerDeployment = SwapManagerDeploymentLib.deployContracts(
             proxyAdmin, coreDeployment, quorum, rewardsInitiator, rewardsOwner
         );
 
-        helloWorldDeployment.strategy = address(helloWorldStrategy);
-        helloWorldDeployment.token = address(token);
+        swapManagerDeployment.strategy = address(swapManagerStrategy);
+        swapManagerDeployment.token = address(token);
 
         vm.stopBroadcast();
         verifyDeployment();
-        HelloWorldDeploymentLib.writeDeploymentJson(helloWorldDeployment);
+        SwapManagerDeploymentLib.writeDeploymentJson(swapManagerDeployment);
     }
 
     function verifyDeployment() internal view {
         require(
-            helloWorldDeployment.stakeRegistry != address(0), "StakeRegistry address cannot be zero"
+            swapManagerDeployment.stakeRegistry != address(0), "StakeRegistry address cannot be zero"
         );
         require(
-            helloWorldDeployment.helloWorldServiceManager != address(0),
-            "HelloWorldServiceManager address cannot be zero"
+            swapManagerDeployment.SwapManager != address(0),
+            "SwapManager address cannot be zero"
         );
-        require(helloWorldDeployment.strategy != address(0), "Strategy address cannot be zero");
+        require(swapManagerDeployment.strategy != address(0), "Strategy address cannot be zero");
         require(proxyAdmin != address(0), "ProxyAdmin address cannot be zero");
         require(
             coreDeployment.delegationManager != address(0),

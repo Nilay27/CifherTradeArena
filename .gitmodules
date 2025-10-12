@@ -1,0 +1,3 @@
+[submodule "swap-manager-avs/contracts/lib/fhenix-contracts"]
+	path = swap-manager-avs/contracts/lib/fhenix-contracts
+	url = https://github.com/fhenixprotocol/fhenix-contracts

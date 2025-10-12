@@ -4,8 +4,8 @@ use dotenv::dotenv;
 use eigensdk::common::get_signer;
 use eigensdk::logging::{get_logger, init_logger, log_level::LogLevel};
 use eyre::Result;
-use hello_world_utils::get_anvil_hello_world_deployment_data;
-use hello_world_utils::helloworldservicemanager::HelloWorldServiceManager;
+use swap_manager_utils::get_anvil_swap_manager_deployment_data;
+use swap_manager_utils::SwapManager::SwapManager;
 use rand::Rng;
 use std::env;
 use std::sync::LazyLock;
@@ -33,13 +33,13 @@ fn generate_random_name() -> String {
 
 /// Calls CreateNewTask function of the Hello world service manager contract
 pub async fn create_new_task(rpc_url: &str, task_name: &str) -> Result<()> {
-    let hw_data = get_anvil_hello_world_deployment_data()?;
-    let hello_world_contract_address: Address =
-        hw_data.addresses.hello_world_service_manager.parse()?;
+    let hw_data = get_anvil_swap_manager_deployment_data()?;
+    let swap_manager_contract_address: Address =
+        hw_data.addresses.swap_manager_service_manager.parse()?;
     let pr = get_signer(&KEY.clone(), rpc_url);
-    let hello_world_contract = HelloWorldServiceManager::new(hello_world_contract_address, pr);
+    let swap_manager_contract = SwapManager::new(swap_manager_contract_address, pr);
 
-    let tx = hello_world_contract
+    let tx = swap_manager_contract
         .createNewTask(task_name.to_string())
         .send()
         .await?
