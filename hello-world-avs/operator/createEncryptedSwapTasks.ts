@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
+const { cofhejs, Encryptable, FheTypes } = require('cofhejs/node');
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -25,9 +26,9 @@ try {
     mockHookAddress = mockHookDeployment.addresses.mockPrivacyHook;
     console.log("Found MockPrivacyHook deployment at:", mockHookAddress);
 } catch (e) {
-    // Fallback to hardcoded address if file doesn't exist
-    mockHookAddress = "0xe8D2A1E88c91DCd5433208d4152Cc4F399a7e91d";
-    console.log("Using fallback MockPrivacyHook at:", mockHookAddress);
+    console.error("MockPrivacyHook deployment file not found!");
+    console.error("Please run: npm run deploy:mock-hook");
+    process.exit(1);
 }
 
 // Load ABIs
@@ -68,6 +69,34 @@ const testIntents: SwapIntent[] = [
     }
 ];
 
+async function encryptAmount(amount: bigint): Promise<string> {
+    try {
+        console.log(`Encrypting amount using CoFHE.js: ${amount}`);
+        
+        // Use real CoFHE.js encryption
+        const encResult = await cofhejs.encrypt([Encryptable.uint128(amount)]);
+        
+        if (!encResult.success) {
+            throw new Error(`Encryption failed: ${encResult.error?.message || 'Unknown error'}`);
+        }
+        
+        const encryptedHandle = encResult.data[0];
+        console.log(`Encrypted to FHE handle:`, encryptedHandle);
+        
+        // Extract just the ctHash from the encrypted handle object
+        const ctHash = encryptedHandle.ctHash;
+        console.log(`Using ctHash: ${ctHash}`);
+        
+        return ethers.AbiCoder.defaultAbiCoder().encode(
+            ["uint256"],
+            [ctHash]
+        );
+    } catch (error) {
+        console.error("Error encrypting amount:", error);
+        throw error;
+    }
+}
+
 async function createEncryptedSwapTask(
     mockHook: ethers.Contract,
     intent: SwapIntent
@@ -79,18 +108,23 @@ async function createEncryptedSwapTask(
     console.log(`Amount: ${intent.amount.toString()}`);
     
     try {
-        // For local Anvil testing: use submitTestIntent which simulates encryption
-        // Real FHE encryption requires either:
-        // 1. Fhenix testnet connection (TESTNET mode)
-        // 2. Mock contracts deployed at specific addresses (MOCK mode with hardhat plugin)
+        // Encrypt the amount
+        const encryptedAmount = await encryptAmount(intent.amount);
         
-        console.log("Using simulated encryption for local Anvil testing");
+        // Get current nonce and gas price to avoid estimation issues
+        const nonce = await wallet.getNonce();
+        const feeData = await provider.getFeeData();
         
-        // The MockHook's submitTestIntent will encode the amount as if it were encrypted
-        const tx = await mockHook.submitTestIntent(
+        // Submit the encrypted intent with explicit transaction parameters
+        const tx = await mockHook.submitEncryptedIntent(
             intent.tokenIn,
             intent.tokenOut,
-            intent.amount
+            encryptedAmount,
+            {
+                nonce: nonce,
+                gasLimit: 500000,
+                gasPrice: feeData.gasPrice
+            }
         );
         
         console.log(`Transaction submitted: ${tx.hash}`);
@@ -134,6 +168,26 @@ async function main() {
     console.log("Starting Encrypted Swap Task Generator");
     console.log("=====================================\n");
     
+    // Initialize CoFHE.js for real FHE encryption
+    console.log("Initializing CoFHE.js...");
+    
+    await cofhejs.initializeWithEthers({
+        ethersProvider: provider,
+        ethersSigner: wallet,
+        environment: 'MOCK'
+    });
+    
+    // Try to create a permit for FHE operations (may fail but not critical for mock)
+    try {
+        await cofhejs.createPermit();
+        console.log("Permit created successfully");
+    } catch (permitError) {
+        console.log("Permit creation skipped (not critical for mock environment)");
+    }
+    
+    console.log("CoFHE.js initialized successfully");
+    console.log("Real FHE encryption enabled\n");
+    
     // Check if MockHook is deployed
     if (!mockHookAddress) {
         console.error("MockPrivacyHook not deployed. Please run:");
@@ -172,7 +226,7 @@ async function main() {
     // Monitor for responses
     console.log("\nMonitoring for operator responses...");
     
-    swapManager.on("SwapTaskResponded", (taskIndex: number, task: any, operator: string, decryptedAmount: bigint) => {
+    swapManager.on("SwapTaskResponded", (taskIndex: number, _task: any, operator: string, decryptedAmount: bigint) => {
         console.log(`\n📨 Task ${taskIndex} responded by operator ${operator}`);
         console.log(`   Decrypted amount: ${decryptedAmount.toString()}`);
     });

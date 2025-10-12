@@ -71,6 +71,10 @@ contract MockPrivacyHook {
         
         // Create a new swap task in the SwapManager with a deadline (1 hour from now)
         uint64 deadline = uint64(block.timestamp + 3600);
+        
+        // Get the current task index before creating the new task
+        uint32 taskIndex = swapManager.latestTaskNum();
+        
         ISwapManager.SwapTask memory task = swapManager.createNewSwapTask(
             msg.sender,
             tokenIn,
@@ -78,9 +82,6 @@ contract MockPrivacyHook {
             encryptedAmount,
             deadline
         );
-        
-        // The task index is the latest task number
-        uint32 taskIndex = swapManager.latestTaskNum();
         
         // Update the intent with the task index
         intents[intentId].taskIndex = taskIndex;

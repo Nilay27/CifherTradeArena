@@ -159,13 +159,27 @@ const decryptAndRespondToSwapTask = async (taskIndex: number, task: any, taskCre
         console.log(`Calculated output amount: ${outputAmount}`);
         
         // Create the message hash that includes task hash and decrypted amount
-        // Create a copy of selectedOperators to avoid read-only array issues
-        const selectedOpsCopy = [...task.selectedOperators];
+        // The contract expects keccak256(abi.encode(task)) where task is the entire struct
+        // We need to encode the task as a tuple matching the SwapTask struct
+        // Pass values as an array in the correct order
+        const taskValues = [
+            task.hook,
+            task.user,
+            task.tokenIn,
+            task.tokenOut,
+            task.encryptedAmount,
+            task.deadline,
+            taskCreatedBlock,
+            [...task.selectedOperators] // Create a copy to avoid read-only array issues
+        ];
+        
+        // Encode the entire task struct as a tuple
         const taskHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-            ["address", "address", "address", "address", "bytes", "uint64", "uint32", "address[]"],
-            [task.hook, task.user, task.tokenIn, task.tokenOut, task.encryptedAmount, task.deadline, taskCreatedBlock, selectedOpsCopy]
+            ["tuple(address,address,address,address,bytes,uint64,uint32,address[])"],
+            [taskValues]
         ));
         
+        // Create the message hash as keccak256(abi.encodePacked(taskHash, decryptedAmount))
         const messageHash = ethers.keccak256(ethers.solidityPacked(
             ["bytes32", "uint256"],
             [taskHash, decryptedTask.decryptedAmount]
@@ -214,8 +228,9 @@ const decryptAndRespondToSwapTask = async (taskIndex: number, task: any, taskCre
 };
 
 const monitorNewTasks = async () => {
+    // Add error handler for the event listener
     SwapManager.on("NewSwapTaskCreated", async (taskIndex: number, task: any) => {
-        console.log(`New swap task detected: Task ${taskIndex}`);
+        console.log(`\n🚀 New swap task detected: Task ${taskIndex}`);
         console.log(`- User: ${task.user}`);
         console.log(`- TokenIn: ${task.tokenIn}`);
         console.log(`- TokenOut: ${task.tokenOut}`);
@@ -225,15 +240,37 @@ const monitorNewTasks = async () => {
         // Check if this operator is selected for this task
         const isSelected = task.selectedOperators.includes(wallet.address);
         if (isSelected) {
-            console.log("This operator is selected for the task!");
+            console.log("✅ This operator is selected for the task!");
             // Decrypt and respond to the swap task
             await decryptAndRespondToSwapTask(taskIndex, task, task.taskCreatedBlock);
         } else {
-            console.log("This operator was not selected for this task");
+            console.log("❌ This operator was not selected for this task");
         }
     });
 
     console.log("Monitoring for new swap tasks...");
+    
+    // Query past events to check if there are any we missed
+    try {
+        const filter = SwapManager.filters.NewSwapTaskCreated();
+        const currentBlock = await provider.getBlockNumber();
+        const fromBlock = Math.max(0, currentBlock - 100); // Look back 100 blocks
+        const events = await SwapManager.queryFilter(filter, fromBlock, currentBlock);
+        
+        if (events.length > 0) {
+            console.log(`Found ${events.length} past NewSwapTaskCreated events in the last 100 blocks`);
+            for (const event of events) {
+                const parsed = SwapManager.interface.parseLog(event);
+                if (parsed) {
+                    console.log(`Past event - Task ${parsed.args[0]}, Block: ${event.blockNumber}`);
+                }
+            }
+        } else {
+            console.log("No past NewSwapTaskCreated events found in the last 100 blocks");
+        }
+    } catch (error) {
+        console.error("Error querying past events:", error);
+    }
 };
 
 const main = async () => {

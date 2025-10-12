@@ -90,6 +90,9 @@ npm run deploy:core
 # Deploy the Hello World AVS contracts
 npm run deploy:swap-manager
 
+# Deploy the mock-hook contract
+npm run deploy:mock-hook
+
 # (Optional) Update ABIs
 npm run extract:abis
 
