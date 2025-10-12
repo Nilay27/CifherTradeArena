@@ -26,7 +26,7 @@ mod tests {
     use eigensdk::logging::init_logger;
 
     use eigensdk::utils::slashing::core::delegationmanager::DelegationManager;
-    use hello_world_utils::helloworldservicemanager::HelloWorldServiceManager::{
+    use hello_world_utils::SwapManager::SwapManager::{
         self, latestTaskNumReturn,
     };
     use hello_world_utils::{
@@ -87,7 +87,7 @@ mod tests {
             .unwrap();
         let provider = &get_provider(&anvil_http);
         let hello_world_contract =
-            HelloWorldServiceManager::new(hello_world_contract_address, provider);
+            SwapManager::new(hello_world_contract_address, provider);
 
         let latest_task_num = hello_world_contract.latestTaskNum().call().await.unwrap();
 

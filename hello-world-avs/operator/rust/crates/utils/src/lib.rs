@@ -24,9 +24,9 @@ pub struct LastUpdate {
 pub struct HelloWorldAddresses {
     #[serde(rename = "proxyAdmin")]
     pub proxy_admin: String,
-    #[serde(rename = "helloWorldServiceManager")]
+    #[serde(rename = "SwapManager")]
     pub hello_world_service_manager: String,
-    #[serde(rename = "helloWorldServiceManagerImpl")]
+    #[serde(rename = "SwapManagerImpl")]
     pub hello_world_service_manager_impl: String,
     #[serde(rename = "stakeRegistry")]
     pub stake_registry: String,

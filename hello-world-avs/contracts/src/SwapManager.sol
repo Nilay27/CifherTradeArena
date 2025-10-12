@@ -9,7 +9,7 @@ import {ECDSAUpgradeable} from
     "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
 import {IERC1271Upgradeable} from
     "@openzeppelin-upgrades/contracts/interfaces/IERC1271Upgradeable.sol";
-import {IHelloWorldServiceManager} from "./IHelloWorldServiceManager.sol";
+import {ISwapManager} from "./ISwapManager.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import {IAllocationManager} from "@eigenlayer/contracts/interfaces/IAllocationManager.sol";
@@ -17,10 +17,10 @@ import {TransparentUpgradeableProxy} from
     "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /**
- * @title Primary entrypoint for procuring services from HelloWorld.
- * @author Eigen Labs, Inc.
+ * @title Primary entrypoint for decentralized swap execution with FHE decryption.
+ * @author Modified for AlphaEngine Hook
  */
-contract HelloWorldServiceManager is ECDSAServiceManagerBase, IHelloWorldServiceManager {
+contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
     using ECDSAUpgradeable for bytes32;
 
     uint32 public latestTaskNum;
@@ -102,26 +102,36 @@ contract HelloWorldServiceManager is ECDSAServiceManagerBase, IHelloWorldService
     }
 
     /* FUNCTIONS */
-    // NOTE: this function creates new task, assigns it a taskId
-    function createNewTask(
-        string memory name
-    ) external returns (Task memory) {
-        // create a new task struct
-        Task memory newTask;
-        newTask.name = name;
+    // NOTE: this function creates new swap task, assigns it a taskId
+    function createNewSwapTask(
+        address user,
+        address tokenIn,
+        address tokenOut,
+        bytes calldata encryptedAmount,
+        uint64 deadline
+    ) external returns (SwapTask memory) {
+        // create a new swap task struct
+        SwapTask memory newTask;
+        newTask.hook = msg.sender; // Privacy hook is the caller
+        newTask.user = user;
+        newTask.tokenIn = tokenIn;
+        newTask.tokenOut = tokenOut;
+        newTask.encryptedAmount = encryptedAmount;
+        newTask.deadline = deadline;
         newTask.taskCreatedBlock = uint32(block.number);
 
         // store hash of task onchain, emit event, and increase taskNum
         allTaskHashes[latestTaskNum] = keccak256(abi.encode(newTask));
-        emit NewTaskCreated(latestTaskNum, newTask);
+        emit NewSwapTaskCreated(latestTaskNum, newTask);
         latestTaskNum = latestTaskNum + 1;
 
         return newTask;
     }
 
-    function respondToTask(
-        Task calldata task,
+    function respondToSwapTask(
+        SwapTask calldata task,
         uint32 referenceTaskIndex,
+        uint256 decryptedAmount,
         bytes memory signature
     ) external {
         // check that the task is valid, hasn't been responded yet, and is being responded in time
@@ -134,8 +144,8 @@ contract HelloWorldServiceManager is ECDSAServiceManagerBase, IHelloWorldService
             "Task response time has already expired"
         );
 
-        // The message that was signed
-        bytes32 messageHash = keccak256(abi.encodePacked("Hello, ", task.name));
+        // The message that was signed - includes task hash and decrypted amount
+        bytes32 messageHash = keccak256(abi.encodePacked(keccak256(abi.encode(task)), decryptedAmount));
         bytes32 ethSignedMessageHash = messageHash.toEthSignedMessageHash();
         bytes4 magicValue = IERC1271Upgradeable.isValidSignature.selector;
 
@@ -160,8 +170,8 @@ contract HelloWorldServiceManager is ECDSAServiceManagerBase, IHelloWorldService
             // Store the operator's signature
             allTaskResponses[operators[i]][referenceTaskIndex] = signatures[i];
 
-            // Emit event for this operator
-            emit TaskResponded(referenceTaskIndex, task, operators[i]);
+            // Emit event for this operator with decrypted amount
+            emit SwapTaskResponded(referenceTaskIndex, task, operators[i], decryptedAmount);
         }
 
         taskWasResponded[referenceTaskIndex] = true;
@@ -174,7 +184,7 @@ contract HelloWorldServiceManager is ECDSAServiceManagerBase, IHelloWorldService
     }
 
     function slashOperator(
-        Task calldata task,
+        SwapTask calldata task,
         uint32 referenceTaskIndex,
         address operator
     ) external {

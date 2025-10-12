@@ -20,7 +20,7 @@ use futures::StreamExt;
 use hello_world_utils::ecdsastakeregistry::ECDSAStakeRegistry;
 use hello_world_utils::{
     ecdsastakeregistry::ISignatureUtilsMixinTypes::SignatureWithSaltAndExpiry,
-    helloworldservicemanager::{HelloWorldServiceManager, IHelloWorldServiceManager::Task},
+    SwapManager::{SwapManager, ISwapManager::Task},
 };
 use hello_world_utils::{
     get_anvil_eigenlayer_deployment_data, get_hello_world_service_manager,
@@ -74,7 +74,7 @@ async fn sign_and_respond_to_task(
         "",
     );
     let hello_world_contract_address: Address = get_hello_world_service_manager()?;
-    let hello_world_contract = HelloWorldServiceManager::new(hello_world_contract_address, &pr);
+    let hello_world_contract = SwapManager::new(hello_world_contract_address, &pr);
 
     let task = Task {
         name,
@@ -104,14 +104,14 @@ async fn monitor_new_tasks(rpc_url: &str, private_key: &str) -> Result<()> {
     // Subscribe to NewTaskCreated events
     let filter = Filter::new()
         .address(hello_world_contract_address)
-        .event_signature(HelloWorldServiceManager::NewTaskCreated::SIGNATURE_HASH)
+        .event_signature(SwapManager::NewTaskCreated::SIGNATURE_HASH)
         .from_block(BlockNumberOrTag::Latest);
     let mut new_task_stream = ws_provider.subscribe_logs(&filter).await?.into_stream();
 
     // Process tasks when a new event is detected
     while let Some(log) = new_task_stream.next().await {
-        if let Ok(decoded) = log.log_decode::<HelloWorldServiceManager::NewTaskCreated>() {
-            let HelloWorldServiceManager::NewTaskCreated { taskIndex, task } = decoded.inner.data;
+        if let Ok(decoded) = log.log_decode::<SwapManager::NewTaskCreated>() {
+            let SwapManager::NewTaskCreated { taskIndex, task } = decoded.inner.data;
             get_logger().info(
                 &format!(
                     "New task {} detected at block {}",
@@ -170,8 +170,8 @@ async fn monitor_new_tasks_polling(rpc_url: &str, private_key: &str) -> Result<(
         let logs = pr.get_logs(&filter).await?;
 
         for log in logs {
-            if let Some(&HelloWorldServiceManager::NewTaskCreated::SIGNATURE_HASH) = log.topic0() {
-                let HelloWorldServiceManager::NewTaskCreated { taskIndex, task } = log
+            if let Some(&SwapManager::NewTaskCreated::SIGNATURE_HASH) = log.topic0() {
+                let SwapManager::NewTaskCreated { taskIndex, task } = log
                     .log_decode()
                     .expect("Failed to decode log new task created")
                     .inner

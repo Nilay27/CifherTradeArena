@@ -22,7 +22,7 @@ const coreDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `.
 
 const delegationManagerAddress = coreDeploymentData.addresses.delegationManager; // todo: reminder to fix the naming of this contract in the deployment file, change to delegationManager
 const avsDirectoryAddress = coreDeploymentData.addresses.avsDirectory;
-const helloWorldServiceManagerAddress = avsDeploymentData.addresses.helloWorldServiceManager;
+const SwapManagerAddress = avsDeploymentData.addresses.SwapManager;
 const ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
 
 
@@ -30,12 +30,12 @@ const ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
 // Load ABIs
 const delegationManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IDelegationManager.json'), 'utf8'));
 const ecdsaRegistryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/ECDSAStakeRegistry.json'), 'utf8'));
-const helloWorldServiceManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/HelloWorldServiceManager.json'), 'utf8'));
+const SwapManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8'));
 const avsDirectoryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IAVSDirectory.json'), 'utf8'));
 
 // Initialize contract objects from ABIs
 const delegationManager = new ethers.Contract(delegationManagerAddress, delegationManagerABI, wallet);
-const helloWorldServiceManager = new ethers.Contract(helloWorldServiceManagerAddress, helloWorldServiceManagerABI, wallet);
+const SwapManager = new ethers.Contract(SwapManagerAddress, SwapManagerABI, wallet);
 const ecdsaRegistryContract = new ethers.Contract(ecdsaStakeRegistryAddress, ecdsaRegistryABI, wallet);
 const avsDirectory = new ethers.Contract(avsDirectoryAddress, avsDirectoryABI, wallet);
 
@@ -55,7 +55,7 @@ const signAndRespondToTask = async (taskIndex: number, taskCreatedBlock: number,
         [operators, signatures, taskCreatedBlock]
     );
 
-    const tx = await helloWorldServiceManager.respondToTask(
+    const tx = await SwapManager.respondToTask(
         { name: taskName, taskCreatedBlock: taskCreatedBlock },
         taskIndex,
         signedTask
@@ -92,7 +92,7 @@ const registerOperator = async () => {
     // Calculate the digest hash, which is a unique value representing the operator, avs, unique value (salt) and expiration date.
     const operatorDigestHash = await avsDirectory.calculateOperatorAVSRegistrationDigestHash(
         wallet.address,
-        await helloWorldServiceManager.getAddress(),
+        await SwapManager.getAddress(),
         salt,
         expiry
     );
@@ -121,9 +121,9 @@ const registerOperator = async () => {
 
 const monitorNewTasks = async () => {
     //console.log(`Creating new task "EigenWorld"`);
-    //await helloWorldServiceManager.createNewTask("EigenWorld");
+    //await SwapManager.createNewTask("EigenWorld");
 
-    helloWorldServiceManager.on("NewTaskCreated", async (taskIndex: number, task: any) => {
+    SwapManager.on("NewTaskCreated", async (taskIndex: number, task: any) => {
         console.log(`New task detected: Hello, ${task.name}`);
         await signAndRespondToTask(taskIndex, task.taskCreatedBlock, task.name);
     });

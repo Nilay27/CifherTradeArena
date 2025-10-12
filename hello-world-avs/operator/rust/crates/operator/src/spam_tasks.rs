@@ -5,7 +5,7 @@ use eigensdk::common::get_signer;
 use eigensdk::logging::{get_logger, init_logger, log_level::LogLevel};
 use eyre::Result;
 use hello_world_utils::get_anvil_hello_world_deployment_data;
-use hello_world_utils::helloworldservicemanager::HelloWorldServiceManager;
+use hello_world_utils::SwapManager::SwapManager;
 use rand::Rng;
 use std::env;
 use std::sync::LazyLock;
@@ -37,7 +37,7 @@ pub async fn create_new_task(rpc_url: &str, task_name: &str) -> Result<()> {
     let hello_world_contract_address: Address =
         hw_data.addresses.hello_world_service_manager.parse()?;
     let pr = get_signer(&KEY.clone(), rpc_url);
-    let hello_world_contract = HelloWorldServiceManager::new(hello_world_contract_address, pr);
+    let hello_world_contract = SwapManager::new(hello_world_contract_address, pr);
 
     let tx = hello_world_contract
         .createNewTask(task_name.to_string())

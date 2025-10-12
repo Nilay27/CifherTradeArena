@@ -89,8 +89,8 @@ contract HelloWorldDeployer is Script, Test {
             helloWorldDeployment.stakeRegistry != address(0), "StakeRegistry address cannot be zero"
         );
         require(
-            helloWorldDeployment.helloWorldServiceManager != address(0),
-            "HelloWorldServiceManager address cannot be zero"
+            helloWorldDeployment.SwapManager != address(0),
+            "SwapManager address cannot be zero"
         );
         require(helloWorldDeployment.strategy != address(0), "Strategy address cannot be zero");
         require(proxyAdmin != address(0), "ProxyAdmin address cannot be zero");

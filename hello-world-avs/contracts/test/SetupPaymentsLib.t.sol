@@ -6,13 +6,13 @@ import "../script/utils/SetupDistributionsLib.sol";
 import "../script/utils/CoreDeploymentParsingLib.sol";
 import "../script/utils/HelloWorldDeploymentLib.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
-import "../src/IHelloWorldServiceManager.sol";
+import "../src/ISwapManager.sol";
 import "@eigenlayer/contracts/interfaces/IStrategy.sol";
 import "@eigenlayer/contracts/libraries/Merkle.sol";
 import "../script/DeployEigenLayerCore.s.sol";
 import "../script/HelloWorldDeployer.s.sol";
 import {StrategyFactory} from "@eigenlayer/contracts/strategies/StrategyFactory.sol";
-import {HelloWorldTaskManagerSetup} from "test/HelloWorldServiceManager.t.sol";
+import {HelloWorldTaskManagerSetup} from "test/SwapManager.t.sol";
 import {ECDSAServiceManagerBase} from
     "@eigenlayer-middleware/src/unaudited/ECDSAServiceManagerBase.sol";
 import {
@@ -38,7 +38,7 @@ contract SetupDistributionsLibTest is Test, TestConstants, HelloWorldTaskManager
     Vm cheats = Vm(VM_ADDRESS);
 
     IRewardsCoordinator public rewardsCoordinator;
-    IHelloWorldServiceManager public helloWorldServiceManager;
+    ISwapManager public SwapManager;
     IStrategy public strategy;
 
     address rewardsInitiator = address(1);
@@ -68,7 +68,7 @@ contract SetupDistributionsLibTest is Test, TestConstants, HelloWorldTaskManager
         labelContracts(coreDeployment, helloWorldDeployment);
 
         cheats.prank(rewardsOwner);
-        ECDSAServiceManagerBase(helloWorldDeployment.helloWorldServiceManager).setRewardsInitiator(
+        ECDSAServiceManagerBase(helloWorldDeployment.SwapManager).setRewardsInitiator(
             rewardsInitiator
         );
 
@@ -215,12 +215,12 @@ contract SetupDistributionsLibTest is Test, TestConstants, HelloWorldTaskManager
 
         cheats.prank(rewardsInitiator);
         mockToken.increaseAllowance(
-            helloWorldDeployment.helloWorldServiceManager, amountPerPayment * numPayments
+            helloWorldDeployment.SwapManager, amountPerPayment * numPayments
         );
 
         cheats.startPrank(rewardsInitiator);
         SetupDistributionsLib.createAVSRewardsSubmissions(
-            address(helloWorldDeployment.helloWorldServiceManager),
+            address(helloWorldDeployment.SwapManager),
             address(strategy),
             numPayments,
             amountPerPayment,

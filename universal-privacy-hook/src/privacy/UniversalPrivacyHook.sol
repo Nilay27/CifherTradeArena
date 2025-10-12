@@ -36,6 +36,7 @@ import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockC
 import {HybridFHERC20} from "./HybridFHERC20.sol";
 import {IFHERC20} from "./interfaces/IFHERC20.sol";
 import {Queue} from "../Queue.sol";
+import {ISwapManager} from "./interfaces/ISwapManager.sol";
 
 // Token & Security
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -99,6 +100,9 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     //                      STATE VARIABLES
     // =============================================================
     
+    /// @dev AVS SwapManager for decentralized FHE decryption
+    ISwapManager public swapManager;
+    
     /// @dev Per-pool encrypted token contracts: poolId => currency => IFHERC20
     mapping(PoolId => mapping(Currency => IFHERC20)) public poolEncryptedTokens;
     
@@ -152,6 +156,19 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         });
     }
 
+    // =============================================================
+    //                      ADMIN FUNCTIONS
+    // =============================================================
+    
+    /**
+     * @dev Set the SwapManager AVS contract address (only owner/deployer can call)
+     * @param _swapManager The SwapManager contract address
+     */
+    function setSwapManager(address _swapManager) external {
+        // In production, add proper access control
+        swapManager = ISwapManager(_swapManager);
+    }
+    
     // =============================================================
     //                      CORE FUNCTIONS
     // =============================================================
@@ -248,6 +265,21 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         // Add encrypted amount to pool's intent queue (like MarketOrder pattern)
         Queue queue = _getOrCreateQueue(poolId);
         queue.push(amount);
+        
+        // Submit task to AVS for decentralized FHE decryption (if SwapManager is set)
+        if (address(swapManager) != address(0)) {
+            // Convert encrypted amount to bytes for AVS
+            bytes memory encryptedAmountBytes = abi.encode(euint128.unwrap(amount));
+            
+            // Create swap task on AVS
+            swapManager.createNewSwapTask(
+                msg.sender,
+                Currency.unwrap(tokenIn),
+                Currency.unwrap(tokenOut),
+                encryptedAmountBytes,
+                deadline
+            );
+        }
         
         emit IntentSubmitted(poolId, tokenIn, tokenOut, msg.sender, intentId);
     }

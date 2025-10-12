@@ -47,7 +47,7 @@ describe('Operator Functionality', () => {
   let provider: ethers.JsonRpcProvider;
   let signer: ethers.Wallet;
   let delegationManager: ethers.Contract;
-  let helloWorldServiceManager: ethers.Contract;
+  let SwapManager: ethers.Contract;
   let ecdsaRegistryContract: ethers.Contract;
   let avsDirectory: ethers.Contract;
 
@@ -63,11 +63,11 @@ describe('Operator Functionality', () => {
 
     const delegationManagerABI = await loadJsonFile(path.join(__dirname, '..', 'abis', 'IDelegationManager.json'));
     const ecdsaRegistryABI = await loadJsonFile(path.join(__dirname, '..', 'abis', 'ECDSAStakeRegistry.json'));
-    const helloWorldServiceManagerABI = await loadJsonFile(path.join(__dirname, '..', 'abis', 'HelloWorldServiceManager.json'));
+    const SwapManagerABI = await loadJsonFile(path.join(__dirname, '..', 'abis', 'SwapManager.json'));
     const avsDirectoryABI = await loadJsonFile(path.join(__dirname, '..', 'abis', 'IAVSDirectory.json'));
 
     delegationManager = new ethers.Contract(deployment.core.addresses.delegationManager, delegationManagerABI, signer);
-    helloWorldServiceManager = new ethers.Contract(deployment.helloWorld.addresses.helloWorldServiceManager, helloWorldServiceManagerABI, signer);
+    SwapManager = new ethers.Contract(deployment.helloWorld.addresses.SwapManager, SwapManagerABI, signer);
     ecdsaRegistryContract = new ethers.Contract(deployment.helloWorld.addresses.stakeRegistry, ecdsaRegistryABI, signer);
     avsDirectory = new ethers.Contract(deployment.core.addresses.avsDirectory, avsDirectoryABI, signer);
   });
@@ -90,7 +90,7 @@ describe('Operator Functionality', () => {
 
     const operatorDigestHash = await avsDirectory.calculateOperatorAVSRegistrationDigestHash(
       signer.address,
-      await helloWorldServiceManager.getAddress(),
+      await SwapManager.getAddress(),
       salt,
       expiry
     );
@@ -116,7 +116,7 @@ describe('Operator Functionality', () => {
   it('should create a new task', async () => {
     const taskName = "Steven";
 
-    const tx = await helloWorldServiceManager.createNewTask(taskName);
+    const tx = await SwapManager.createNewTask(taskName);
     await tx.wait();
   });
 
@@ -136,7 +136,7 @@ describe('Operator Functionality', () => {
       [operators, signatures, ethers.toBigInt(taskCreatedBlock)]
     );
 
-    const tx = await helloWorldServiceManager.respondToTask(
+    const tx = await SwapManager.respondToTask(
       { name: taskName, taskCreatedBlock: taskCreatedBlock },
       taskIndex,
       signedTask
