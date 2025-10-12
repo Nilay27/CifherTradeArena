@@ -47,25 +47,40 @@ interface SwapIntent {
     description: string;
 }
 
-// Test swap intents
+// Test swap intents - designed to create matches
 const testIntents: SwapIntent[] = [
+    // These two should match (USDC <-> USDT)
     {
         tokenIn: MOCK_USDC,
         tokenOut: MOCK_USDT,
-        amount: BigInt(1000 * 1e6), // 1000 USDC (6 decimals)
-        description: "Swap 1000 USDC to USDT"
+        amount: BigInt(1000 * 1e6), // 1000 USDC
+        description: "User A: Swap 1000 USDC to USDT"
+    },
+    {
+        tokenIn: MOCK_USDT,
+        tokenOut: MOCK_USDC,
+        amount: BigInt(800 * 1e6), // 800 USDT
+        description: "User B: Swap 800 USDT to USDC (should match with User A)"
+    },
+    // These two should partially match (WETH <-> USDC)
+    {
+        tokenIn: MOCK_WETH,
+        tokenOut: MOCK_USDC,
+        amount: BigInt(2 * 1e18), // 2 WETH
+        description: "User C: Swap 2 WETH to USDC"
     },
     {
         tokenIn: MOCK_USDC,
         tokenOut: MOCK_WETH,
-        amount: BigInt(500 * 1e6), // 500 USDC
-        description: "Swap 500 USDC to WETH"
+        amount: BigInt(3000 * 1e6), // 3000 USDC
+        description: "User D: Swap 3000 USDC to WETH (partial match with User C)"
     },
+    // This one won't match
     {
-        tokenIn: MOCK_WETH,
-        tokenOut: MOCK_USDC,
-        amount: BigInt(1 * 1e18), // 1 WETH (18 decimals)
-        description: "Swap 1 WETH to USDC"
+        tokenIn: MOCK_USDT,
+        tokenOut: MOCK_WETH,
+        amount: BigInt(500 * 1e6), // 500 USDT
+        description: "User E: Swap 500 USDT to WETH (no match, will be net swap)"
     }
 ];
 
@@ -97,34 +112,32 @@ async function encryptAmount(amount: bigint): Promise<string> {
     }
 }
 
-async function createEncryptedSwapTask(
+async function submitEncryptedIntent(
     mockHook: ethers.Contract,
     intent: SwapIntent
-): Promise<void> {
-    console.log(`\n=== Creating Encrypted Swap Task ===`);
+): Promise<string | null> {
+    console.log(`\n=== Submitting Encrypted Intent ===`);
     console.log(`Description: ${intent.description}`);
     console.log(`Token In: ${intent.tokenIn}`);
     console.log(`Token Out: ${intent.tokenOut}`);
     console.log(`Amount: ${intent.amount.toString()}`);
     
     try {
-        // Encrypt the amount
+        // Encrypt the amount using real FHE
         const encryptedAmount = await encryptAmount(intent.amount);
-        
-        // Get current nonce and gas price to avoid estimation issues
-        const nonce = await wallet.getNonce();
-        const feeData = await provider.getFeeData();
-        
-        // Submit the encrypted intent with explicit transaction parameters
-        const tx = await mockHook.submitEncryptedIntent(
+         // Get current nonce and gas price to avoid estimation issues
+         const nonce = await wallet.getNonce();
+         const feeData = await provider.getFeeData();
+        // Submit the encrypted intent to the batch
+        const tx = await mockHook.submitIntent(
             intent.tokenIn,
             intent.tokenOut,
             encryptedAmount,
             {
                 nonce: nonce,
-                gasLimit: 500000,
+                gasLimit: 5000000,
                 gasPrice: feeData.gasPrice
-            }
+            }            
         );
         
         console.log(`Transaction submitted: ${tx.hash}`);
@@ -140,27 +153,20 @@ async function createEncryptedSwapTask(
             }
         });
         
-        const taskCreatedEvent = receipt.logs.find((log: any) => {
-            try {
-                const parsed = mockHook.interface.parseLog(log);
-                return parsed?.name === "TaskCreated";
-            } catch {
-                return false;
-            }
-        });
-        
-        if (intentSubmittedEvent && taskCreatedEvent) {
+        if (intentSubmittedEvent) {
             const intentParsed = mockHook.interface.parseLog(intentSubmittedEvent);
-            const taskParsed = mockHook.interface.parseLog(taskCreatedEvent);
+            const intentId = intentParsed?.args.intentId;
             
             console.log(`✅ Intent submitted successfully!`);
-            console.log(`   Intent ID: ${intentParsed?.args.intentId}`);
-            console.log(`   Task Index: ${taskParsed?.args.taskIndex}`);
-            console.log(`   Selected Operators: ${taskParsed?.args.selectedOperators.join(', ')}`);
+            console.log(`   Intent ID: ${intentId}`);
+            
+            return intentId;
         }
         
+        return null;
     } catch (error) {
-        console.error(`❌ Error creating task:`, error);
+        console.error(`❌ Error submitting intent:`, error);
+        return null;
     }
 }
 
@@ -199,6 +205,15 @@ async function main() {
     const mockHook = new ethers.Contract(mockHookAddress, MockHookABI, wallet);
     const swapManager = new ethers.Contract(avsDeploymentData.addresses.SwapManager, SwapManagerABI, wallet);
     
+    // Check if MockHook is authorized
+    const isAuthorized = await swapManager.authorizedHooks(mockHookAddress);
+    console.log(`MockHook authorized in SwapManager: ${isAuthorized}`);
+    
+    if (!isAuthorized) {
+        console.error("MockHook is not authorized! Run the deployment script again.");
+        process.exit(1);
+    }
+    
     // Check if there are registered operators
     const operatorCount = await swapManager.getOperatorCount();
     console.log(`Registered operators: ${operatorCount}`);
@@ -208,27 +223,41 @@ async function main() {
         console.warn("   Please start the operator first: npm run start:operator");
     }
     
-    // Submit tasks with delays
-    console.log("\nSubmitting encrypted swap tasks...");
+    // Submit intents to create a batch
+    console.log("\nSubmitting encrypted intents to batch...");
+    const submittedIntentIds: string[] = [];
     
     for (let i = 0; i < testIntents.length; i++) {
-        await createEncryptedSwapTask(mockHook, testIntents[i]);
+        const intentId = await submitEncryptedIntent(mockHook, testIntents[i]);
+        if (intentId) {
+            submittedIntentIds.push(intentId);
+        }
         
-        // Wait between tasks
+        // Small delay between intents
         if (i < testIntents.length - 1) {
-            console.log("\nWaiting 10 seconds before next task...");
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            console.log("\nWaiting 2 seconds before next intent...");
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
     }
     
-    console.log("\n=== All tasks submitted ===");
+    console.log(`\n=== All ${submittedIntentIds.length} intents submitted ===`);
     
-    // Monitor for responses
-    console.log("\nMonitoring for operator responses...");
+    // In production, batches auto-finalize after the block interval (5 blocks)
+    // when a new intent arrives. The operator monitors for BatchFinalized events.
+    console.log("\nBatches will auto-finalize after 5 blocks when new intents arrive.");
+    console.log("Operators are monitoring for BatchFinalized events from SwapManager.");
     
-    swapManager.on("SwapTaskResponded", (taskIndex: number, _task: any, operator: string, decryptedAmount: bigint) => {
-        console.log(`\n📨 Task ${taskIndex} responded by operator ${operator}`);
-        console.log(`   Decrypted amount: ${decryptedAmount.toString()}`);
+    // Monitor for batch settlement events
+    console.log("\nMonitoring for batch settlements...");
+    
+    swapManager.on("BatchSettlementSubmitted", (batchId: string, internalizedCount: number, netSwapCount: number) => {
+        console.log(`\n📨 Batch ${batchId} settlement submitted!`);
+        console.log(`   Internalized transfers: ${internalizedCount}`);
+        console.log(`   Net swaps: ${netSwapCount}`);
+    });
+    
+    swapManager.on("BatchSettled", (batchId: string, success: boolean) => {
+        console.log(`\n✅ Batch ${batchId} settled: ${success ? 'SUCCESS' : 'FAILED'}`);
     });
     
     // Keep the script running to monitor events

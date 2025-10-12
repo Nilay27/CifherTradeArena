@@ -117,12 +117,16 @@ export const encryptAmount = async (amount: bigint): Promise<string> => {
         }
         
         const encryptedHandle = encResult.data[0];
-        console.log(`Encrypted to FHE handle: ${encryptedHandle}`);
+        console.log(`Encrypted to FHE handle:`, encryptedHandle);
         
-        // Encode the handle as bytes for storage
+        // Extract just the ctHash from the encrypted handle object
+        const ctHash = encryptedHandle.ctHash;
+        console.log(`Using ctHash: ${ctHash}`);
+        
+        // Encode the ctHash as bytes for storage
         return ethers.AbiCoder.defaultAbiCoder().encode(
             ["uint256"],
-            [encryptedHandle]
+            [ctHash]
         );
     } catch (error) {
         console.error("Error encrypting amount:", error);

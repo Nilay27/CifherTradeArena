@@ -5,6 +5,10 @@ import "forge-std/Test.sol";
 import "../script/utils/SetupDistributionsLib.sol";
 import "../script/utils/CoreDeploymentParsingLib.sol";
 import "../script/utils/SwapManagerDeploymentLib.sol";
+import {UpgradeableProxyLib} from "../script/utils/UpgradeableProxyLib.sol";
+import {CoreDeployLib} from "../script/utils/CoreDeploymentParsingLib.sol";
+import {ERC20Mock} from "./ERC20Mock.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import "../src/ISwapManager.sol";
 import "@eigenlayer/contracts/interfaces/IStrategy.sol";
@@ -12,6 +16,7 @@ import "@eigenlayer/contracts/libraries/Merkle.sol";
 import "../script/DeployEigenLayerCore.s.sol";
 import "../script/SwapManagerDeployer.s.sol";
 import {StrategyFactory} from "@eigenlayer/contracts/strategies/StrategyFactory.sol";
+import {StrategyManager} from "@eigenlayer/contracts/core/StrategyManager.sol";
 // import {SwapManagerTaskManagerSetup} from "test/SwapManager.t.sol";
 import {ECDSAServiceManagerBase} from
     "@eigenlayer-middleware/src/unaudited/ECDSAServiceManagerBase.sol";
@@ -40,11 +45,25 @@ contract SetupDistributionsLibTest is Test, TestConstants /*, SwapManagerTaskMan
     IRewardsCoordinator public rewardsCoordinator;
     ISwapManager public SwapManager;
     IStrategy public strategy;
+    
+    // Missing declarations that were probably in SwapManagerTaskManagerSetup
+    address proxyAdmin;
+    CoreDeployLib.DeploymentData internal coreDeployment;
+    CoreDeployLib.DeploymentConfigData internal coreConfigData;
+    SwapManagerDeploymentLib.DeploymentData internal swapManagerDeployment;
+    ERC20Mock public mockToken;
+    IECDSAStakeRegistryTypes.Quorum internal quorum;
+    
+    struct AVSOwner {
+        Vm.Wallet key;
+    }
+    AVSOwner internal owner;
 
     address rewardsInitiator = address(1);
     address rewardsOwner = address(2);
 
-    function setUp() public virtual override {
+    function setUp() public virtual {
+        owner = AVSOwner({key: vm.createWallet("owner_wallet")});
         proxyAdmin = UpgradeableProxyLib.deployProxyAdmin();
         coreConfigData =
             CoreDeploymentParsingLib.readDeploymentConfigValues("test/mockData/config/core/", 1337);
@@ -227,5 +246,24 @@ contract SetupDistributionsLibTest is Test, TestConstants /*, SwapManagerTaskMan
             duration,
             startTimestamp
         );
+    }
+    
+    // Helper functions from HelloWorldServiceManager.t.sol
+    function addStrategy(address token) internal returns (IStrategy) {
+        StrategyFactory strategyFactory = StrategyFactory(coreDeployment.strategyFactory);
+        return strategyFactory.deployNewStrategy(IERC20(token));
+    }
+    
+    function labelContracts(
+        CoreDeployLib.DeploymentData memory _coreDeployment,
+        SwapManagerDeploymentLib.DeploymentData memory _swapManagerDeployment
+    ) internal {
+        vm.label(_coreDeployment.delegationManager, "DelegationManager");
+        vm.label(_coreDeployment.avsDirectory, "AVSDirectory");
+        vm.label(_coreDeployment.strategyManager, "StrategyManager");
+        vm.label(_coreDeployment.eigenPodManager, "EigenPodManager");
+        vm.label(_coreDeployment.rewardsCoordinator, "RewardsCoordinator");
+        vm.label(_swapManagerDeployment.SwapManager, "SwapManager");
+        vm.label(_swapManagerDeployment.stakeRegistry, "StakeRegistry");
     }
 }

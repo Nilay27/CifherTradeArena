@@ -169,30 +169,61 @@ contract MockPrivacyHook {
      */
     function _getOrCreateBatch() internal returns (bytes32) {
         // Check if we need a new batch
-        if (currentBatchId == bytes32(0) || 
-            block.number >= lastBatchBlock + batchBlockInterval) {
+        if (currentBatchId == bytes32(0)) {
+            // First batch ever
+            _createNewBatch();
+        } else if (block.number >= lastBatchBlock + batchBlockInterval) {
+            // Close current batch and create new one
+            bytes32 oldBatchId = currentBatchId;
             
-            // Finalize previous batch if exists and has intents
-            if (currentBatchId != bytes32(0) && 
-                batches[currentBatchId].status == BatchStatus.Collecting &&
-                batches[currentBatchId].intentIds.length > 0) {
-                // Auto-finalize previous batch
-                this.finalizeBatch();
+            // Close the old batch if it has intents
+            if (batches[oldBatchId].status == BatchStatus.Collecting && 
+                batches[oldBatchId].intentIds.length > 0) {
+                _finalizeBatchInternal(oldBatchId);
             }
             
-            // Create new batch
-            currentBatchId = keccak256(abi.encode(block.number, block.timestamp));
-            batches[currentBatchId] = Batch({
-                intentIds: new bytes32[](0),
-                createdAt: block.timestamp,
-                status: BatchStatus.Collecting
-            });
-            
-            lastBatchBlock = block.number;
-            emit BatchCreated(currentBatchId, block.number);
+            // Create new batch after closing old one
+            _createNewBatch();
         }
         
         return currentBatchId;
+    }
+    
+    function _createNewBatch() internal {
+        currentBatchId = keccak256(abi.encode(block.number, block.timestamp));
+        batches[currentBatchId] = Batch({
+            intentIds: new bytes32[](0),
+            createdAt: block.timestamp,
+            status: BatchStatus.Collecting
+        });
+        
+        lastBatchBlock = block.number;
+        emit BatchCreated(currentBatchId, block.number);
+    }
+    
+    function _finalizeBatchInternal(bytes32 batchId) internal {
+        Batch storage batch = batches[batchId];
+        
+        // Ensure batch is in correct state
+        require(batch.status == BatchStatus.Collecting, "Batch not collecting");
+        require(batch.intentIds.length > 0, "Empty batch");
+        
+        // Ensure SwapManager is set
+        require(address(swapManager) != address(0), "SwapManager not set");
+        
+        // Encode batch data for AVS
+        bytes memory batchData = abi.encode(
+            batch.intentIds,
+            address(this) // Mock pool key
+        );
+        
+        // Send to SwapManager AVS - this should succeed now
+        swapManager.finalizeBatch(batchId, batchData);
+        
+        // Mark batch as processing AFTER successful external call
+        batch.status = BatchStatus.Processing;
+        
+        emit BatchFinalized(batchId, batch.intentIds.length);
     }
     
     /**
