@@ -19,7 +19,7 @@ pragma solidity ^0.8.24;
  */
 
 // Uniswap V4 Imports
-import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
+import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
@@ -40,10 +40,9 @@ import {ISwapManager} from "./interfaces/ISwapManager.sol";
 // Token & Security
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-// FHE
+// FHE - Fhenix CoFHE
 import {FHE, InEuint128, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTransient {
@@ -53,12 +52,15 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     // =============================================================
     
     event EncryptedTokenCreated(PoolId indexed poolId, Currency indexed currency, address token);
-    event Deposited(PoolId indexed poolId, Currency indexed currency, address indexed user, uint256 amount);
+    event Deposited(PoolId indexed poolId, Currency indexed currency, address indexed user, uint256 amount, address encryptedToken);
     event IntentSubmitted(PoolId indexed poolId, Currency tokenIn, Currency tokenOut, address indexed user, bytes32 intentId);
-    event IntentExecuted(PoolId indexed poolId, bytes32 indexed intentId, uint128 amountIn, uint128 amountOut);
     event Withdrawn(PoolId indexed poolId, Currency indexed currency, address indexed user, address recipient, uint256 amount);
+
+    // AVS Batch Events
     event BatchCreated(bytes32 indexed batchId, PoolId indexed poolId, uint256 intentCount);
-    event BatchSettled(bytes32 indexed batchId, uint256 matchedCount, uint256 netCount);
+    event BatchFinalized(bytes32 indexed batchId, uint256 intentCount);
+    event BatchSettled(bytes32 indexed batchId);
+    event BatchExecuted(bytes32 indexed batchId, uint128 netAmountIn, uint128 netAmountOut);
 
     // =============================================================
     //                          LIBRARIES
@@ -68,8 +70,6 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
 
-    // FHE library usage for encrypted operations
-    using FHE for uint256;
 
     // =============================================================
     //                          STRUCTS
@@ -85,27 +85,19 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         address owner;           // User who submitted the intent
         uint64 deadline;         // Expiration timestamp
         bool processed;          // Whether intent has been executed
-        address[] selectedOperators; // Operators allowed to decrypt this intent
+        PoolKey poolKey;         // Pool key for the swap
         bytes32 batchId;         // Batch this intent belongs to
     }
-    
+
     /**
-     * @dev Batch tracking for atomic settlement
+     * @dev Batch of intents for AVS processing
      */
     struct Batch {
-        bytes32[] intentIds;
-        uint256 createdAt;
-        uint256 settledAt;
-        BatchStatus status;
-        PoolId poolId;
-        PoolKey poolKey; // Store the pool key for swap execution
-    }
-    
-    enum BatchStatus {
-        Collecting,
-        Processing,
-        Settled,
-        Cancelled
+        bytes32[] intentIds;     // Intent IDs in this batch
+        uint256 createdBlock;    // Block when batch was created
+        uint256 submittedBlock;  // Block when batch was submitted to AVS
+        bool finalized;          // Whether batch has been finalized
+        bool settled;            // Whether batch has been settled
     }
 
     // =============================================================
@@ -114,47 +106,50 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     
     bytes internal constant ZERO_BYTES = bytes("");
     
-    // FHE encrypted constants for reuse
-    euint128 private ENCRYPTED_ZERO;
-    euint128 private ENCRYPTED_ONE;
+    // FHE encrypted constants for reuse - removed as they're not used
 
     // =============================================================
     //                      STATE VARIABLES
     // =============================================================
-    
-    /// @dev AVS SwapManager for decentralized FHE decryption
-    ISwapManager public swapManager;
-    
+
     /// @dev Per-pool encrypted token contracts: poolId => currency => IFHERC20
     mapping(PoolId => mapping(Currency => IFHERC20)) public poolEncryptedTokens;
-    
+
     /// @dev Per-pool reserves backing encrypted tokens: poolId => currency => amount
     mapping(PoolId => mapping(Currency => uint256)) public poolReserves;
-    
+
     /// @dev Global intent storage: intentId => Intent
     mapping(bytes32 => Intent) public intents;
-    
-    /// @dev Batch management
+
+    // AVS Batch Management
+    /// @dev Batch interval in blocks (5 blocks = ~5-60 seconds depending on chain)
+    uint256 public constant BATCH_INTERVAL = 5;
+
+    /// @dev Current batch ID per pool
+    mapping(PoolId => bytes32) public currentBatchId;
+
+    /// @dev Batch storage
     mapping(bytes32 => Batch) public batches;
-    mapping(PoolId => bytes32) public currentBatchId; // Current collecting batch per pool
-    mapping(PoolId => uint256) public lastBatchBlock; // Block when current batch started collecting
-    mapping(bytes32 => bool) public processedBatches;
-    
-    /// @dev Configuration
-    uint256 public batchBlockInterval = 5; // Process batch every N blocks
+
+    /// @dev SwapManager address for AVS integration
+    address public swapManager;
 
     // =============================================================
     //                        CONSTRUCTOR
     // =============================================================
-    
+
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
-        // Initialize FHE constants and grant contract access
-        ENCRYPTED_ZERO = FHE.asEuint128(0);
-        ENCRYPTED_ONE = FHE.asEuint128(1);
-        
-        // CRITICAL: Contract must have access to use these constants
-        FHE.allowThis(ENCRYPTED_ZERO);
-        FHE.allowThis(ENCRYPTED_ONE);
+        // No FHE initialization needed in constructor
+        // FHE operations will be done when actually needed
+    }
+
+    /**
+     * @dev Set the SwapManager address (only once)
+     * @param _swapManager Address of the AVS SwapManager contract
+     */
+    function setSwapManager(address _swapManager) external {
+        require(_swapManager != address(0), "Invalid address");
+        swapManager = _swapManager;
     }
 
     // =============================================================
@@ -181,11 +176,6 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     }
 
     // =============================================================
-    //                      ADMIN FUNCTIONS
-    // =============================================================
-    
-    
-    // =============================================================
     //                      CORE FUNCTIONS
     // =============================================================
     
@@ -203,10 +193,10 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         PoolId poolId = key.toId();
         
         // Validate hook is enabled for this pool
-        require(_isHookEnabledForPool(key), "Hook not enabled");
-        
+        require(address(key.hooks) == address(this), "Hook not enabled");
+
         // Validate currency belongs to this pool
-        require(_isValidCurrency(key, currency), "Invalid currency");
+        require(currency == key.currency0 || currency == key.currency1, "Invalid currency");
         
         // Get or create encrypted token for this pool/currency
         IFHERC20 encryptedToken = _getOrCreateEncryptedToken(poolId, currency);
@@ -215,19 +205,22 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         IERC20(Currency.unwrap(currency)).transferFrom(msg.sender, address(this), amount);
         
         // Mint encrypted tokens to user using trivial encryption
-        euint128 encryptedAmount = FHE.asEuint128(amount);
+        euint128 encryptedAmount = FHE.asEuint128(uint128(amount));
         FHE.allowThis(encryptedAmount);
         FHE.allow(encryptedAmount, address(encryptedToken));
         encryptedToken.mintEncrypted(msg.sender, encryptedAmount);
         
         // Update hook reserves
         poolReserves[poolId][currency] += amount;
-        
-        emit Deposited(poolId, currency, msg.sender, amount);
+
+        emit Deposited(poolId, currency, msg.sender, amount, address(encryptedToken));
     }
     
     /**
      * @dev Submit an encrypted swap intent
+     * TODO: Move intent submission logic to separate IntentManager contract
+     * This will allow supporting multiple intent types (swapIntent, tradeIntent, limitIntent)
+     * IntentManager will be the entry point but hook must always hold the funds
      * @param key The pool key
      * @param tokenIn Input currency
      * @param tokenOut Output currency
@@ -238,35 +231,53 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         PoolKey calldata key,
         Currency tokenIn,
         Currency tokenOut,
-        InEuint128 calldata encAmount,
+        InEuint128 memory encAmount,
         uint64 deadline
     ) external nonReentrant {
         PoolId poolId = key.toId();
-        
+
         // Validate currencies form valid pair for this pool
-        require(_isValidCurrencyPair(key, tokenIn, tokenOut), "Invalid pair");
-        
+        require((tokenIn == key.currency0 && tokenOut == key.currency1) ||
+                (tokenIn == key.currency1 && tokenOut == key.currency0), "Invalid pair");
+
         // Convert to euint128 and set up proper FHE access control
         euint128 amount = FHE.asEuint128(encAmount);
         FHE.allowThis(amount);
-        
+
         // User transfers encrypted tokens to hook as collateral
         IFHERC20 inputToken = poolEncryptedTokens[poolId][tokenIn];
         require(address(inputToken) != address(0), "Token not exists");
-        
+
         // Grant token contract access to the encrypted amount
         FHE.allow(amount, address(inputToken));
-        
+
         // Transfer encrypted tokens from user to hook as collateral
         inputToken.transferFromEncrypted(msg.sender, address(this), amount);
-        
-        // For now, no operator selection per intent
-        // Operators will be selected when batch is finalized
-        address[] memory selectedOperators = new address[](0);
-        
-        // Get or create current batch for this pool (pass key for storage)
-        bytes32 batchId = _getOrCreateBatch(poolId, key);
-        
+
+        // Check and create/update batch
+        bytes32 batchId = currentBatchId[poolId];
+        Batch storage batch = batches[batchId];
+
+        // Create new batch if needed (first batch or interval passed)
+        if (batchId == bytes32(0) || block.number >= batch.createdBlock + BATCH_INTERVAL) {
+            // Finalize the previous batch if it exists and has intents
+            if (batchId != bytes32(0) && batch.intentIds.length > 0 && !batch.finalized) {
+                _finalizeBatch(poolId, batchId);
+            }
+
+            // Create new batch
+            batchId = keccak256(abi.encode(poolId, block.number, block.timestamp));
+            currentBatchId[poolId] = batchId;
+            batches[batchId] = Batch({
+                intentIds: new bytes32[](0),
+                createdBlock: block.number,
+                submittedBlock: 0,
+                finalized: false,
+                settled: false
+            });
+            batch = batches[batchId];
+        }
+
         // Create and store intent
         bytes32 intentId = keccak256(abi.encode(msg.sender, block.timestamp, poolId));
         intents[intentId] = Intent({
@@ -276,13 +287,13 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             owner: msg.sender,
             deadline: deadline,
             processed: false,
-            selectedOperators: selectedOperators,
+            poolKey: key,
             batchId: batchId
         });
-        
+
         // Add intent to current batch
-        batches[batchId].intentIds.push(intentId);
-        
+        batch.intentIds.push(intentId);
+
         emit IntentSubmitted(poolId, tokenIn, tokenOut, msg.sender, intentId);
     }
     
@@ -301,11 +312,17 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     ) external nonReentrant {
         PoolId poolId = key.toId();
         
-        // Burn encrypted tokens from user
+        // Get encrypted token contract
         IFHERC20 encryptedToken = poolEncryptedTokens[poolId][currency];
         require(address(encryptedToken) != address(0), "Token not exists");
         
-        encryptedToken.burn(msg.sender, amount);
+        // Create encrypted amount for burning
+        euint128 encryptedAmount = FHE.asEuint128(uint128(amount));
+        FHE.allowThis(encryptedAmount);
+        FHE.allow(encryptedAmount, address(encryptedToken));
+        
+        // Burn encrypted tokens from user
+        encryptedToken.burnEncrypted(msg.sender, encryptedAmount);
         
         // Update reserves
         poolReserves[poolId][currency] -= amount;
@@ -323,215 +340,22 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     function _beforeSwap(
         address sender,
         PoolKey calldata key,
-        SwapParams calldata, // params
-        bytes calldata // data
+        SwapParams calldata params,
+        bytes calldata data
     ) internal override onlyPoolManager() returns (bytes4, BeforeSwapDelta, uint24) {
         
         // Allow hook-initiated swaps to pass through
         if (sender == address(this)) {
             return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
-        
-        // Regular swaps just pass through
-        // All batch processing happens in settleBatch
+        // For privacy, we could block external swaps or allow them
+        // For now, let's allow external swaps but process intents first
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
-
-    // =============================================================
-    //                    BATCH SETTLEMENT
-    // =============================================================
-    
-    /**
-     * @dev Set the batch block interval (owner only)
-     */
-    function setBatchBlockInterval(uint256 _interval) external {
-        require(msg.sender == address(this), "Only owner"); // TODO: Add proper access control
-        require(_interval > 0 && _interval <= 100, "Invalid interval");
-        batchBlockInterval = _interval;
-    }
-    
-    /**
-     * @dev Set the SwapManager address (owner only)
-     */
-    function setSwapManager(address _swapManager) external {
-        // For testing, allow anyone to set it (in production, add proper access control)
-        // require(msg.sender == owner, "Only owner");
-        swapManager = ISwapManager(_swapManager);
-    }
-    
-    /**
-     * @dev Get intent details for AVS compatibility
-     * @param intentId The ID of the intent to retrieve
-     * @return user The user who submitted the intent
-     * @return tokenIn The input token address
-     * @return tokenOut The output token address
-     * @return encryptedAmount The encrypted amount as bytes
-     */
-    function getIntent(bytes32 intentId) external view returns (
-        address user,
-        address tokenIn,
-        address tokenOut,
-        bytes memory encryptedAmount
-    ) {
-        Intent storage intent = intents[intentId];
-        require(intent.owner != address(0), "Intent not found");
-
-        user = intent.owner;
-        tokenIn = Currency.unwrap(intent.tokenIn);
-        tokenOut = Currency.unwrap(intent.tokenOut);
-
-        // Package the euint128 as bytes for AVS compatibility
-        // The AVS expects the ctHash encoded as bytes
-        uint256 ctHash = euint128.unwrap(intent.encAmount);
-        encryptedAmount = abi.encode(ctHash);
-    }
-
-    /**
-     * @dev Check if a batch is ready for processing
-     */
-    function isBatchReady(PoolId poolId) external view returns (bool) {
-        bytes32 batchId = currentBatchId[poolId];
-        if (batchId == bytes32(0)) return false;
-        
-        Batch memory batch = batches[batchId];
-        return batch.status == BatchStatus.Collecting && 
-               block.number >= lastBatchBlock[poolId] + batchBlockInterval;
-    }
-    
-    /**
-     * @dev Settlement function called by SwapManager after AVS consensus
-     * The Hook already holds all tokens from users who submitted intents
-     * @param batchId The batch to settle
-     * @param internalizedTransfers Direct token transfers from internalized matching
-     * @param netSwap The single net swap with distribution info
-     * @param hasNetSwap Whether there's a net swap needed
-     */
-    function settleBatch(
-        bytes32 batchId,
-        ISwapManager.TokenTransfer[] calldata internalizedTransfers,
-        ISwapManager.NetSwap calldata netSwap,
-        bool hasNetSwap
-    ) external nonReentrant {
-        require(msg.sender == address(swapManager), "Only SwapManager");
-        require(batches[batchId].status == BatchStatus.Processing, "Invalid batch status");
-        require(!processedBatches[batchId], "Already processed");
-        
-        Batch storage batch = batches[batchId];
-        PoolId poolId = batch.poolId;
-        
-        // Step 1: Execute internalized transfers
-        // Hook already has custody of all tokens, just distribute them
-        for (uint256 i = 0; i < internalizedTransfers.length; i++) {
-            ISwapManager.TokenTransfer memory transfer = internalizedTransfers[i];
-            
-            // Get the encrypted token contract
-            IFHERC20 token = poolEncryptedTokens[poolId][Currency.wrap(transfer.token)];
-            
-            // Transfer from Hook to user (Hook already has the tokens)
-            token.transferFromEncrypted(address(this), transfer.user, transfer.amount);
-        }
-        
-        // Step 2: Process net swap through Uniswap pool if needed
-        // This is the residual amount that couldn't be internalized
-        if (hasNetSwap) {
-            _processNetSwap(batch.poolId, netSwap);
-        }
-        
-        // Mark batch as settled
-        batch.status = BatchStatus.Settled;
-        batch.settledAt = block.timestamp;
-        processedBatches[batchId] = true;
-        
-        // Mark all intents as processed
-        for (uint256 i = 0; i < batch.intentIds.length; i++) {
-            intents[batch.intentIds[i]].processed = true;
-        }
-        
-        emit BatchSettled(batchId, internalizedTransfers.length, hasNetSwap ? 1 : 0);
-    }
-    
-    /**
-     * @dev Get or create a batch for the pool
-     */
-    function _getOrCreateBatch(PoolId poolId, PoolKey memory key) internal returns (bytes32) {
-        bytes32 batchId = currentBatchId[poolId];
-        
-        // Check if we need a new batch (block interval passed or first batch)
-        if (batchId == bytes32(0) || 
-            block.number >= lastBatchBlock[poolId] + batchBlockInterval) {
-            
-            // Finalize previous batch if exists
-            if (batchId != bytes32(0) && batches[batchId].status == BatchStatus.Collecting) {
-                batches[batchId].status = BatchStatus.Processing;
-                
-                // Notify SwapManager to process this batch (even if empty)
-                if (address(swapManager) != address(0)) {
-                    // Encode batch data for operators
-                    bytes memory batchData = abi.encode(
-                        batches[batchId].intentIds,
-                        batches[batchId].poolKey
-                    );
-                    swapManager.finalizeBatch(batchId, batchData);
-                }
-            }
-            
-            // Create new batch
-            batchId = keccak256(abi.encode(poolId, block.number, block.timestamp));
-            batches[batchId] = Batch({
-                intentIds: new bytes32[](0),
-                createdAt: block.timestamp,
-                settledAt: 0,
-                status: BatchStatus.Collecting,
-                poolId: poolId,
-                poolKey: key
-            });
-            
-            currentBatchId[poolId] = batchId;
-            lastBatchBlock[poolId] = block.number;
-            
-            emit BatchCreated(batchId, poolId, 0);
-        }
-        
-        return batchId;
-    }
-    
-    /**
-     * @dev Process the net swap through the Uniswap pool and distribute output
-     */
-    function _processNetSwap(PoolId poolId, ISwapManager.NetSwap memory netSwap) internal {
-        // Get the pool key from the current batch
-        bytes32 batchId = currentBatchId[poolId];
-        require(batchId != bytes32(0), "No active batch");
-        PoolKey memory key = batches[batchId].poolKey;
-        
-        // Prepare data for unlockCallback
-        bytes memory unlockData = abi.encode(
-            key,
-            netSwap,
-            poolId
-        );
-        
-        // Execute via PoolManager unlock to handle swap
-        poolManager.unlock(unlockData);
-    }
-    
     
     // =============================================================
     //                      HELPER FUNCTIONS
     // =============================================================
-    
-    function _isHookEnabledForPool(PoolKey calldata key) internal view returns (bool) {
-        return address(key.hooks) == address(this);
-    }
-    
-    function _isValidCurrency(PoolKey calldata key, Currency currency) internal pure returns (bool) {
-        return currency == key.currency0 || currency == key.currency1;
-    }
-    
-    function _isValidCurrencyPair(PoolKey calldata key, Currency tokenIn, Currency tokenOut) internal pure returns (bool) {
-        return (tokenIn == key.currency0 && tokenOut == key.currency1) ||
-               (tokenIn == key.currency1 && tokenOut == key.currency0);
-    }
     
     function _getOrCreateEncryptedToken(PoolId poolId, Currency currency) internal returns (IFHERC20) {
         IFHERC20 existing = poolEncryptedTokens[poolId][currency];
@@ -540,8 +364,9 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             // Create new hybrid FHE/ERC20 token
             string memory symbol = _getCurrencySymbol(currency);
             string memory name = string(abi.encodePacked("Encrypted ", symbol));
+            uint8 decimals = IERC20Metadata(Currency.unwrap(currency)).decimals();
             
-            existing = new HybridFHERC20(name, string(abi.encodePacked("e", symbol)));
+            existing = new HybridFHERC20(name, string(abi.encodePacked("e", symbol)), decimals);
             poolEncryptedTokens[poolId][currency] = existing;
             
             emit EncryptedTokenCreated(poolId, currency, address(existing));
@@ -553,10 +378,6 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     function _getCurrencySymbol(Currency currency) internal view returns (string memory) {
         // Try to get the symbol from the ERC20 token
         try IERC20Metadata(Currency.unwrap(currency)).symbol() returns (string memory symbol) {
-            // Check if symbol is empty and return fallback
-            if (bytes(symbol).length == 0) {
-                return "TOKEN";
-            }
             return symbol;
         } catch {
             // Fallback if token doesn't implement symbol()
@@ -565,22 +386,207 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     }
     
     // =============================================================
+    //                    BATCH MANAGEMENT
+    // =============================================================
+
+    /**
+     * @dev Finalize a batch and submit to AVS for processing (external callable)
+     * @param poolId The pool ID to finalize batch for
+     */
+    function finalizeBatch(PoolId poolId) external {
+        bytes32 batchId = currentBatchId[poolId];
+        require(batchId != bytes32(0), "No active batch");
+
+        Batch storage batch = batches[batchId];
+        require(!batch.finalized, "Already finalized");
+        require(block.number >= batch.createdBlock + BATCH_INTERVAL, "Batch not ready");
+        require(batch.intentIds.length > 0, "Empty batch");
+
+        _finalizeBatch(poolId, batchId);
+    }
+
+    /**
+     * @dev Internal function to finalize a batch
+     * @param poolId The pool ID
+     * @param batchId The batch ID to finalize
+     */
+    function _finalizeBatch(PoolId poolId, bytes32 batchId) internal {
+        Batch storage batch = batches[batchId];
+
+        // Mark as finalized
+        batch.finalized = true;
+        batch.submittedBlock = block.number;
+
+        // Package batch data for AVS
+        bytes[] memory encryptedIntents = new bytes[](batch.intentIds.length);
+
+        for (uint i = 0; i < batch.intentIds.length; i++) {
+            Intent storage intent = intents[batch.intentIds[i]];
+
+            // Package intent data for AVS
+            encryptedIntents[i] = abi.encode(
+                batch.intentIds[i],
+                intent.owner,
+                intent.tokenIn,
+                intent.tokenOut,
+                euint128.unwrap(intent.encAmount), // Pass the encrypted handle
+                intent.deadline
+            );
+            FHE.allowTransient(intent.encAmount, swapManager);
+        }
+
+        // Submit to AVS SwapManager
+        if (swapManager != address(0)) {
+            bytes memory batchData = abi.encode(
+                batchId,
+                batch.intentIds,
+                poolId,
+                address(this),
+                encryptedIntents
+            );
+
+            ISwapManager(swapManager).finalizeBatch(batchId, batchData);
+        }
+
+        // Start new batch for the pool
+        currentBatchId[poolId] = bytes32(0);
+
+        emit BatchCreated(batchId, poolId, batch.intentIds.length);
+        emit BatchFinalized(batchId, batch.intentIds.length);
+    }
+
+    // Settlement structures for AVS
+    struct InternalTransfer {
+        address to;             // User receiving tokens
+        address encToken;       // IFHERC20 token address (e.g., eUSDC or eUSDT contract)
+        InEuint128 encAmount;   // Fhenix CoFHE: InEuint128 already contains signature
+    }
+
+    struct UserShare {
+        address user;           // User address
+        uint128 shareNumerator; // User's share numerator (e.g., 4 for 4/5)
+        uint128 shareDenominator; // Share denominator (e.g., 5 for 4/5)
+    }
+
+    // State variable to track AMM output for distribution
+    uint128 private lastSwapOutput;
+
+    /**
+     * @dev Settle a batch with internal transfers and net swaps from AVS
+     * @param batchId The batch ID to settle
+     * @param internalTransfers Internal transfers to users (only minting since hook holds tokens)
+     * @param netAmountIn Total amount to swap in AMM (unencrypted)
+     * @param tokenIn Input currency for AMM swap (pool token)
+     * @param tokenOut Output currency for AMM swap (pool token)
+     * @param outputToken IFHERC20 token address for output distribution
+     * @param userShares How to distribute AMM output among users (as ratios)
+     */
+    function settleBatch(
+        bytes32 batchId,
+        InternalTransfer[] calldata internalTransfers,
+        uint128 netAmountIn,
+        Currency tokenIn,
+        Currency tokenOut,
+        address outputToken,
+        UserShare[] calldata userShares
+    ) external {
+        // TODO: Add onlySwapManager modifier once SwapManager interface is added
+        require(swapManager != address(0), "SwapManager not set");
+        require(msg.sender == swapManager, "Only SwapManager");
+
+        Batch storage batch = batches[batchId];
+        require(batch.finalized, "Batch not finalized");
+        require(!batch.settled, "Already settled");
+
+        // Get pool key from first intent
+        Intent storage firstIntent = intents[batch.intentIds[0]];
+        PoolKey memory key = firstIntent.poolKey;
+
+        // Process internal transfers (hook already holds all tokens from intents)
+        for (uint i = 0; i < internalTransfers.length; i++) {
+            InternalTransfer memory transfer = internalTransfers[i];
+
+            // Cast to IFHERC20 interface
+            IFHERC20 encToken = IFHERC20(transfer.encToken);
+
+            // Fhenix CoFHE: InEuint128 already contains signature, just convert
+            euint128 verifiedAmount = FHE.asEuint128(transfer.encAmount);
+
+            // Grant permissions to encrypted token contract
+            FHE.allow(verifiedAmount, address(encToken));
+
+            // Transfer from Hook to receiver (Hook already holds tokens from matched intents)
+            encToken.transferEncrypted(transfer.to, verifiedAmount);
+        }
+
+        // Execute net swap on AMM if needed
+        if (netAmountIn > 0) {
+            // Reset last swap output
+            lastSwapOutput = 0;
+
+            // Use unlock callback to execute the net swap
+            bytes memory unlockData = abi.encode(
+                key,
+                batchId,
+                netAmountIn,
+                tokenIn,
+                tokenOut,
+                address(this)
+            );
+
+            poolManager.unlock(unlockData);
+
+            // Now lastSwapOutput contains the actual amount received from AMM
+            require(lastSwapOutput > 0, "Swap failed");
+
+            // Distribute AMM output based on user shares
+            IFHERC20 encOutputToken = IFHERC20(outputToken);
+
+            for (uint i = 0; i < userShares.length; i++) {
+                UserShare memory share = userShares[i];
+
+                // Calculate user's portion: (lastSwapOutput * numerator) / denominator
+                uint128 userAmount = (lastSwapOutput * share.shareNumerator) / share.shareDenominator;
+
+                // Create encrypted amount and mint to user
+                euint128 encAmount = FHE.asEuint128(userAmount);
+                FHE.allowThis(encAmount);
+                FHE.allow(encAmount, address(encOutputToken));
+
+                encOutputToken.mintEncrypted(share.user, encAmount);
+            }
+        }
+
+        // Mark batch as settled
+        batch.settled = true;
+
+        // Mark all intents as processed
+        for (uint i = 0; i < batch.intentIds.length; i++) {
+            intents[batch.intentIds[i]].processed = true;
+        }
+
+        emit BatchSettled(batchId);
+    }
+
+    // =============================================================
     //                      UNLOCK CALLBACK
     // =============================================================
     
     function unlockCallback(bytes calldata data) external override onlyPoolManager returns (bytes memory) {
-        // Decode the net swap data
-        (PoolKey memory key, ISwapManager.NetSwap memory netSwap, PoolId poolId) = 
-            abi.decode(data, (PoolKey, ISwapManager.NetSwap, PoolId));
+        // Decode the batch settlement data (batchId instead of intentId for AVS settlement)
+        (PoolKey memory key, bytes32 batchId, uint128 amount, Currency tokenIn, Currency tokenOut, address owner) =
+            abi.decode(data, (PoolKey, bytes32, uint128, Currency, Currency, address));
+
+        PoolId poolId = key.toId();
         
-        // The netAmount is already decrypted by AVS
-        uint256 amountIn = netSwap.netAmount;
+        // Determine swap direction
+        bool zeroForOne = tokenIn == key.currency0;
         
         // Execute swap with EXACT INPUT (negative amount in V4)
         SwapParams memory swapParams = SwapParams({
-            zeroForOne: netSwap.isZeroForOne,
-            amountSpecified: -int256(amountIn),  // Negative for exact input
-            sqrtPriceLimitX96: netSwap.isZeroForOne ? 
+            zeroForOne: zeroForOne,
+            amountSpecified: -int256(uint256(amount)),  // Negative for exact input in V4
+            sqrtPriceLimitX96: zeroForOne ? 
                 TickMath.MIN_SQRT_PRICE + 1 : 
                 TickMath.MAX_SQRT_PRICE - 1
         });
@@ -605,10 +611,9 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             key.currency1.take(poolManager, address(this), uint128(d1), false);
         }
         
-        // Calculate output amount from the positive delta
-        uint256 outputAmount;
-        Currency outputCurrency = Currency.wrap(netSwap.tokenOut);
-        if (outputCurrency == key.currency0) {
+        // Calculate output amount from the positive delta of the output currency
+        uint128 outputAmount;
+        if (tokenOut == key.currency0) {
             require(d0 > 0, "No token0 output");
             outputAmount = uint128(d0);
         } else {
@@ -616,29 +621,15 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             outputAmount = uint128(d1);
         }
         
-        // Update hook reserves
-        poolReserves[poolId][Currency.wrap(netSwap.tokenIn)] -= amountIn;
-        poolReserves[poolId][outputCurrency] += outputAmount;
-        
-        // Mint encrypted output tokens and distribute to recipients
-        IFHERC20 outputToken = poolEncryptedTokens[poolId][outputCurrency];
-        require(address(outputToken) != address(0), "Output token not exists");
-        
-        // Mint the total output as encrypted tokens to the hook first
-        euint128 encryptedOutput = FHE.asEuint128(outputAmount);
-        FHE.allowThis(encryptedOutput);
-        FHE.allow(encryptedOutput, address(outputToken));
-        outputToken.mintEncrypted(address(this), encryptedOutput);
-        
-        // Distribute to recipients according to their amounts
-        for (uint256 i = 0; i < netSwap.recipients.length; i++) {
-            outputToken.transferFromEncrypted(
-                address(this), 
-                netSwap.recipients[i], 
-                netSwap.recipientAmounts[i]
-            );
-        }
-        
+        // Update hook reserves for batch net swap
+        poolReserves[poolId][tokenIn] -= amount;
+        poolReserves[poolId][tokenOut] += outputAmount;
+
+        // Store the output amount for distribution in settleBatch
+        lastSwapOutput = outputAmount;
+
+        emit BatchExecuted(batchId, amount, outputAmount);
+
         return ZERO_BYTES;
     }
 }

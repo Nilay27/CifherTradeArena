@@ -148,10 +148,10 @@ euint128 encrypted = FHE.asEuint128(plainAmount);
 
 ### Core Contracts
 ```
-src/privacy/UniversalPrivacyHook.sol (351 lines)
+src/UniversalPrivacyHook.sol (351 lines)
 src/Queue.sol (31 lines)
-src/privacy/HybridFHERC20.sol (205 lines)
-src/privacy/interfaces/IFHERC20.sol (29 lines)
+src/HybridFHERC20.sol (205 lines)
+src/interfaces/IFHERC20.sol (29 lines)
 ```
 
 ### Test Reference

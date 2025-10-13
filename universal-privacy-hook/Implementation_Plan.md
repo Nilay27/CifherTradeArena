@@ -137,7 +137,7 @@ hook.balance(USDC) + hook.balance(USDT) = eUSDC.totalSupply + eUSDT.totalSupply
 
 **Key Files**:
 ```
-src/privacy/
+src/
 ├── interfaces/
 │   └── IFHERC20.sol
 ├── FHERC20.sol

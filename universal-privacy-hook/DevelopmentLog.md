@@ -54,7 +54,7 @@
 ### 📋 Next Tasks (This Session)
 
 #### Immediate Development Goals
-1. **Create directory structure** - `src/privacy/` for new contracts
+1. **Create directory structure** - `src/` for new contracts
 2. **Implement IFHERC20 interface** - Define encrypted token standard
 3. **Build FHERC20 contract** - Core encrypted token with FHE operations
 4. **Create FHE helper patterns** - Reusable FHE constants and utilities
@@ -197,7 +197,7 @@
 ## 🚀 Next Session Goals
 
 ### Immediate Tasks (Next 2-3 hours)
-1. **Create `src/privacy/` directory structure**
+1. **Create `src/` directory structure**
 2. **Implement `IFHERC20.sol`** - Encrypted token interface
 3. **Build `FHERC20.sol`** - Core encrypted token implementation
 4. **Start `UniversalPrivacyHook.sol`** - Basic hook skeleton

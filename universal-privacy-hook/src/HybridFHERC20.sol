@@ -13,6 +13,8 @@ import {FHE, InEuint128, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol
  */
 contract HybridFHERC20 is ERC20, IFHERC20 {
 
+    uint8 private _decimals;
+
     //errors
     error HybridFHERC20__InvalidSender();
     error HybridFHERC20__InvalidReceiver();
@@ -27,8 +29,17 @@ contract HybridFHERC20 is ERC20, IFHERC20 {
     //zero constant
     euint128 private immutable ZERO = FHE.asEuint128(0);
 
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, uint8 decimals_) ERC20(name, symbol) {
         FHE.allowThis(ZERO);
+        _decimals = decimals_;
+    }
+
+    /**
+     * @dev Returns the number of decimals used to get its user representation.
+     * Overrides the default 18 decimals from ERC20.
+     */
+    function decimals() public view virtual override returns (uint8) {
+        return _decimals;
     }
 
     // ----------- Public Mint Functions --------------------

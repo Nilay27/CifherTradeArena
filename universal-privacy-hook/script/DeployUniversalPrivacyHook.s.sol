@@ -23,7 +23,7 @@ import {DeployPermit2} from "../test/utils/forks/DeployPermit2.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IPositionDescriptor} from "v4-periphery/src/interfaces/IPositionDescriptor.sol";
 import {IWETH9} from "v4-periphery/src/interfaces/external/IWETH9.sol";
-import {UniversalPrivacyHook} from "../src/privacy/UniversalPrivacyHook.sol";
+import {UniversalPrivacyHook} from "../src/UniversalPrivacyHook.sol";
 
 /// @notice Deploys UniversalPrivacyHook with proper address mining
 contract DeployUniversalPrivacyHook is Script, DeployPermit2 {
