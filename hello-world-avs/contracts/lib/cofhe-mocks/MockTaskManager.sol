@@ -4,8 +4,8 @@ pragma solidity >=0.8.25 <0.9.0;
 
 import {ACL, Permission} from "./ACL.sol";
 // import {PlaintextsStorage} from "./PlaintextsStorage.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Strings} from "@oz-v5/contracts/utils/Strings.sol";
+import {ECDSA} from "@oz-v5/contracts/utils/cryptography/ECDSA.sol";
 import {MockCoFHE} from "./MockCoFHE.sol";
 import {ITaskManager, FunctionId, Utils, EncryptedInput} from "./ICofhe.sol";
 

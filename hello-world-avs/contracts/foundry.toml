@@ -1,19 +1,56 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["lib"]
+libs = ["lib", "../../universal-privacy-hook/node_modules"]
 fs_permissions = [{ access = "read-write", path = "./" }]
 solc = "0.8.27"
 optimizer = true
+optimizer_runs = 50
 via_ir = true
+allow_paths = ["../../universal-privacy-hook/node_modules", "../../../node_modules"]
+no_match_coverage = "^(test/|script/|lib/)"
+
+
+# Default profile uses MOCKS for testing
+remappings = [
+    "@eigenlayer/=lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/",
+    "@eigenlayer-scripts/=lib/eigenlayer-middleware/lib/eigenlayer-contracts/script/",
+    "@eigenlayer-middleware/=lib/eigenlayer-middleware/",
+    "@openzeppelin-upgrades/=lib/eigenlayer-middleware/lib/openzeppelin-contracts-upgradeable/",
+    "@openzeppelin/contracts/=lib/eigenlayer-middleware/lib/openzeppelin-contracts/contracts/",
+    "@oz-v5/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@fhenixprotocol/cofhe-contracts/=lib/cofhe-mocks/",
+    "@fhenixprotocol/cofhe-mock-contracts/=lib/cofhe-mocks/",
+    "hardhat/=../../universal-privacy-hook/node_modules/hardhat/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+# Production profile uses REAL FHE contracts from node_modules
+# Tests are excluded since they require mocks
+[profile.production]
+src = "src"
+test = "test"  # Still declare test dir
+out = "out"
+libs = ["lib", "../../universal-privacy-hook/node_modules"]
+fs_permissions = [{ access = "read-write", path = "./" }]
+solc = "0.8.27"
+optimizer = true
+optimizer_runs = 200  # More optimization for production
+via_ir = true
+allow_paths = ["../../universal-privacy-hook/node_modules", "../../../node_modules"]
+# Skip compiling test files for production
+skip = ["*/test/**"]
 
 remappings = [
     "@eigenlayer/=lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/",
     "@eigenlayer-scripts/=lib/eigenlayer-middleware/lib/eigenlayer-contracts/script/",
     "@eigenlayer-middleware/=lib/eigenlayer-middleware/",
-    "@openzeppelin/=lib/eigenlayer-middleware/lib/openzeppelin-contracts/",
     "@openzeppelin-upgrades/=lib/eigenlayer-middleware/lib/openzeppelin-contracts-upgradeable/",
-    "@fhenixprotocol/=lib/fhenix-contracts/",
+    "@openzeppelin/contracts/=lib/eigenlayer-middleware/lib/openzeppelin-contracts/contracts/",
+    "@oz-v5/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@fhenixprotocol/cofhe-contracts/=../../universal-privacy-hook/node_modules/@fhenixprotocol/cofhe-contracts/",
+    "@fhenixprotocol/cofhe-mock-contracts/=lib/cofhe-mocks/",
+    "hardhat/=../../universal-privacy-hook/node_modules/hardhat/",
     "forge-std/=lib/forge-std/src/",
 ]
 

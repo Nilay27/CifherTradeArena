@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import "./ISwapManager.sol";
-import "./SimpleBoringVault.sol";
+import {ISwapManager} from "./ISwapManager.sol";
+import {SimpleBoringVault} from "./SimpleBoringVault.sol";
 
 /**
  * @title MockPrivacyHook
@@ -12,6 +12,21 @@ import "./SimpleBoringVault.sol";
 contract MockPrivacyHook {
     ISwapManager public swapManager;
     SimpleBoringVault public boringVault;
+
+    // Define types that match UniversalPrivacyHook
+    struct InternalTransfer {
+        address from;
+        address to;
+        address token;
+        uint256 amount;
+    }
+
+    struct NetSwap {
+        address tokenIn;
+        address tokenOut;
+        uint256 amountIn;
+        uint256 amountOut;
+    }
     
     // Track submitted intents
     mapping(bytes32 => Intent) public intents;
@@ -54,6 +69,7 @@ contract MockPrivacyHook {
     event BatchCreated(bytes32 indexed batchId, uint256 blockNumber);
     event BatchFinalized(bytes32 indexed batchId, uint256 intentCount);
     event UEISubmitted(bytes32 indexed intentId, address indexed submitter, bytes ctBlob);
+    event UEISubmittedWithProof(bytes32 indexed intentId, address indexed submitter, bytes ctBlob, bytes inputProof);
 
     constructor(address _swapManager) {
         swapManager = ISwapManager(_swapManager);
@@ -67,55 +83,6 @@ contract MockPrivacyHook {
         boringVault = SimpleBoringVault(_vault);
     }
 
-    /**
-     * @notice Submit a Universal Encrypted Intent for trading strategies
-     * @param ctDecoder Encrypted decoder/sanitizer address
-     * @param ctTarget Encrypted target protocol address
-     * @param ctSelector Encrypted function selector (4 bytes)
-     * @param ctArgs Array of encrypted arguments
-     * @param deadline Expiration timestamp
-     * @return intentId The ID of the submitted UEI
-     */
-    function submitUEI(
-        bytes calldata ctDecoder,
-        bytes calldata ctTarget,
-        bytes calldata ctSelector,
-        bytes[] calldata ctArgs,
-        uint256 deadline
-    ) external returns (bytes32 intentId) {
-        // Pack all encrypted components into a blob
-        bytes memory ctBlob = abi.encode(
-            ctDecoder,
-            ctTarget,
-            ctSelector,
-            ctArgs
-        );
-
-        // Submit to SwapManager AVS
-        intentId = swapManager.submitUEI(ctBlob, deadline);
-
-        emit UEISubmitted(intentId, msg.sender, ctBlob);
-
-        return intentId;
-    }
-
-    /**
-     * @notice Simplified UEI submission for testing (all data in one blob)
-     * @param ctBlob Pre-encoded encrypted data containing all components
-     * @param deadline Expiration timestamp
-     * @return intentId The ID of the submitted UEI
-     */
-    function submitUEIBlob(
-        bytes calldata ctBlob,
-        uint256 deadline
-    ) external returns (bytes32 intentId) {
-        // Submit directly to SwapManager AVS
-        intentId = swapManager.submitUEI(ctBlob, deadline);
-
-        emit UEISubmitted(intentId, msg.sender, ctBlob);
-
-        return intentId;
-    }
     
     /**
      * @notice Submit an encrypted swap intent to the current batch (legacy bytes version)
@@ -207,8 +174,8 @@ contract MockPrivacyHook {
      */
     function settleBatch(
         bytes32 batchId,
-        ISwapManager.TokenTransfer[] calldata internalizedTransfers,
-        ISwapManager.NetSwap calldata netSwap,
+        InternalTransfer[] calldata internalizedTransfers,
+        NetSwap calldata netSwap,
         bool hasNetSwap
     ) external {
         require(msg.sender == address(swapManager), "Only SwapManager");

@@ -7,7 +7,7 @@ import {ACL} from "./ACL.sol";
 import "./FHE.sol";
 import {MockZkVerifier} from "./MockZkVerifier.sol";
 import {MockZkVerifierSigner} from "./MockZkVerifierSigner.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {MessageHashUtils} from "@oz-v5/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Permission, PermissionUtils} from "./Permissioned.sol";
 import {MockQueryDecrypter} from "./MockQueryDecrypter.sol";
 import {SIGNER_ADDRESS} from "./MockCoFHE.sol";

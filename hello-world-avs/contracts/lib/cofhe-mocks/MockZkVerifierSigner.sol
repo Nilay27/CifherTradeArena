@@ -7,7 +7,7 @@ import {console} from "forge-std/console.sol";
 import {SIGNER_PRIVATE_KEY} from "./MockCoFHE.sol";
 import {EncryptedInput} from "./ICofhe.sol";
 import {Test} from "forge-std/Test.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {MessageHashUtils} from "@oz-v5/contracts/utils/cryptography/MessageHashUtils.sol";
 
 contract MockZkVerifierSigner is Test {
     function zkVerifySignPacked(

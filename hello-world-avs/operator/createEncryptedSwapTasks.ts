@@ -1,44 +1,40 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-const { cofhejs, Encryptable, FheTypes } = require('cofhejs/node');
+import { initializeFhevm } from './fhevmUtils';
+import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/node';
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
 
 // Setup env variables
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
+const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || "https://sepolia.gateway.tenderly.co");
+const wallet = new ethers.Wallet(process.env.HELPER_WALLET_KEY!, provider);
 
-// For local testing
-const chainId = 31337;
+// For Sepolia
+const chainId = 11155111;
 
-// Load deployment data
-const avsDeploymentData = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/swap-manager/${chainId}.json`), 'utf8')
-);
+// Sepolia deployment addresses
+const UNIVERSAL_PRIVACY_HOOK = "0x32841c9E0245C4B1a9cc29137d7E1F078e6f0080";
+const SWAP_MANAGER_ADDRESS = "0xFbce8804FfC5413d60093702664ABfd71Ce0E592";
 
-// Load MockHook address from deployment
-let mockHookAddress: string | null = null;
+console.log("Using UniversalPrivacyHook at:", UNIVERSAL_PRIVACY_HOOK);
+console.log("Using SwapManager at:", SWAP_MANAGER_ADDRESS);
+
+// Load UniversalPrivacyHook ABI from abis folder
+let UniversalHookABI: any;
 try {
-    const mockHookDeployment = JSON.parse(
-        fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/mock-hook/${chainId}.json`), 'utf8')
+    UniversalHookABI = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, '../abis/UniversalPrivacyHook.json'), 'utf8')
     );
-    mockHookAddress = mockHookDeployment.addresses.mockPrivacyHook;
-    console.log("Found MockPrivacyHook deployment at:", mockHookAddress);
 } catch (e) {
-    console.error("MockPrivacyHook deployment file not found!");
-    console.error("Please run: npm run deploy:mock-hook");
+    console.error("UniversalPrivacyHook ABI not found at abis/UniversalPrivacyHook.json");
+    console.error(e);
     process.exit(1);
 }
 
-// Load ABIs
-const SwapManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8'));
-const MockHookABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/MockPrivacyHook.json'), 'utf8'));
-
-// Mock token addresses for testing
-const MOCK_USDC = "0x0000000000000000000000000000000000000001";
-const MOCK_USDT = "0x0000000000000000000000000000000000000002";
-const MOCK_WETH = "0x0000000000000000000000000000000000000003";
+// Sepolia token addresses
+const USDC_ADDRESS = "0x59dd1A3Bd1256503cdc023bfC9f10e107d64C3C1";
+const USDT_ADDRESS = "0xB1D9519e953B8513a4754f9B33d37eDba90c001D";
 
 interface SwapIntent {
     tokenIn: string;
@@ -47,65 +43,45 @@ interface SwapIntent {
     description: string;
 }
 
-// Test swap intents - designed to create matches
-const testIntents: SwapIntent[] = [
-    // These two should match (USDC <-> USDT)
-    {
-        tokenIn: MOCK_USDC,
-        tokenOut: MOCK_USDT,
-        amount: BigInt(1000 * 1e6), // 1000 USDC
-        description: "User A: Swap 1000 USDC to USDT"
-    },
-    {
-        tokenIn: MOCK_USDT,
-        tokenOut: MOCK_USDC,
-        amount: BigInt(800 * 1e6), // 800 USDT
-        description: "User B: Swap 800 USDT to USDC (should match with User A)"
-    },
-    // These two should partially match (WETH <-> USDC)
-    {
-        tokenIn: MOCK_WETH,
-        tokenOut: MOCK_USDC,
-        amount: BigInt(2 * 1e18), // 2 WETH
-        description: "User C: Swap 2 WETH to USDC"
-    },
-    {
-        tokenIn: MOCK_USDC,
-        tokenOut: MOCK_WETH,
-        amount: BigInt(3000 * 1e6), // 3000 USDC
-        description: "User D: Swap 3000 USDC to WETH (partial match with User C)"
-    },
-    // This one won't match
-    {
-        tokenIn: MOCK_USDT,
-        tokenOut: MOCK_WETH,
-        amount: BigInt(500 * 1e6), // 500 USDT
-        description: "User E: Swap 500 USDT to WETH (no match, will be net swap)"
-    }
-];
+// Initialize FHEVM instance globally
+let fhevmInstance: any = null;
 
-async function encryptAmount(amount: bigint): Promise<string> {
+async function initializeFhevmInstance() {
+    if (!fhevmInstance) {
+        // Create FHEVM instance for Sepolia
+        const networkUrl = process.env.RPC_URL || "https://sepolia.gateway.tenderly.co";
+        console.log("Creating FHEVM instance with network:", networkUrl);
+
+        fhevmInstance = await createInstance({
+            ...SepoliaConfig,
+            network: networkUrl
+        });
+
+        console.log("FHEVM instance created successfully");
+    }
+    return fhevmInstance;
+}
+
+async function encryptAmountForIntent(amount: bigint, contractAddress: string, signerAddress: string): Promise<{ handle: any; inputProof: any }> {
     try {
-        console.log(`Encrypting amount using CoFHE.js: ${amount}`);
-        
-        // Use real CoFHE.js encryption
-        const encResult = await cofhejs.encrypt([Encryptable.uint128(amount)]);
-        
-        if (!encResult.success) {
-            throw new Error(`Encryption failed: ${encResult.error?.message || 'Unknown error'}`);
-        }
-        
-        const encryptedHandle = encResult.data[0];
-        console.log(`Encrypted to FHE handle:`, encryptedHandle);
-        
-        // Extract just the ctHash from the encrypted handle object
-        const ctHash = encryptedHandle.ctHash;
-        console.log(`Using ctHash: ${ctHash}`);
-        
-        return ethers.AbiCoder.defaultAbiCoder().encode(
-            ["uint256"],
-            [ctHash]
-        );
+        console.log(`Encrypting amount using ZAMA FHEVM: ${amount}`);
+
+        // Use the initialized FHEVM instance
+        const fhevm = await initializeFhevmInstance();
+
+        const encryptedInput = fhevm
+            .createEncryptedInput(contractAddress, signerAddress)
+            .add128(amount);
+
+        const encrypted = await encryptedInput.encrypt();
+
+        console.log("Encrypted amount handle:", encrypted.handles[0]);
+        console.log("Input proof length:", encrypted.inputProof.length, "bytes");
+
+        return {
+            handle: encrypted.handles[0],
+            inputProof: encrypted.inputProof
+        };
     } catch (error) {
         console.error("Error encrypting amount:", error);
         throw error;
@@ -113,7 +89,8 @@ async function encryptAmount(amount: bigint): Promise<string> {
 }
 
 async function submitEncryptedIntent(
-    mockHook: ethers.Contract,
+    universalHook: ethers.Contract,
+    poolKey: any,
     intent: SwapIntent
 ): Promise<string | null> {
     console.log(`\n=== Submitting Encrypted Intent ===`);
@@ -123,30 +100,102 @@ async function submitEncryptedIntent(
     console.log(`Amount: ${intent.amount.toString()}`);
     
     try {
-        // Encrypt the amount using real FHE
-        const encryptedAmount = await encryptAmount(intent.amount);
-         // Get current nonce and gas price to avoid estimation issues
-         const nonce = await wallet.getNonce();
-         const feeData = await provider.getFeeData();
-        // Submit the encrypted intent to the batch
-        const tx = await mockHook.submitIntent(
+        // Encrypt the amount using ZAMA FHEVM with proper proof
+        const encrypted = await encryptAmountForIntent(
+            intent.amount,
+            UNIVERSAL_PRIVACY_HOOK,
+            wallet.address
+        );
+
+        const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+
+        // Get current nonce and gas price to avoid estimation issues
+        const nonce = await wallet.getNonce();
+        console.log(`Using nonce: ${nonce}`);
+
+        const feeData = await provider.getFeeData();
+        const gasPrice = (feeData.gasPrice! * 120n) / 100n;
+        console.log(`Gas price: ${gasPrice.toString()}`);
+
+        console.log("Submitting transaction to UniversalPrivacyHook...");
+        console.log("Contract address:", universalHook.target);
+        console.log("Wallet address:", wallet.address);
+
+        // Try to estimate gas first
+        try {
+            console.log("Estimating gas...");
+            console.log("Parameters being sent:");
+            console.log("  poolKey:", JSON.stringify(poolKey, null, 2));
+            console.log("  tokenIn:", intent.tokenIn);
+            console.log("  tokenOut:", intent.tokenOut);
+            console.log("  encryptedHandle:", encrypted.handle);
+            console.log("  inputProof length:", encrypted.inputProof.length);
+            console.log("  deadline:", deadline);
+
+            // Try to decode the revert reason if gas estimation fails
+            const estimatedGas = await universalHook.submitIntent.estimateGas(
+                poolKey,
+                intent.tokenIn,
+                intent.tokenOut,
+                encrypted.handle,
+                encrypted.inputProof,
+                deadline
+            );
+            console.log(`Estimated gas: ${estimatedGas.toString()}`);
+        } catch (estimateError: any) {
+            console.error("Gas estimation failed:", estimateError.message);
+
+            // Try to get more details about the error
+            if (estimateError.data) {
+                try {
+                    const decodedError = universalHook.interface.parseError(estimateError.data);
+                    console.error("Decoded error:", decodedError);
+                } catch {
+                    console.error("Raw error data:", estimateError.data);
+                }
+            }
+
+            if (estimateError.reason) {
+                console.error("Revert reason:", estimateError.reason);
+            }
+
+            console.error("Full error object:", JSON.stringify(estimateError, null, 2));
+            // Continue anyway with manual gas limit
+        }
+
+        // Submit the encrypted intent to UniversalPrivacyHook with handle and proof
+        console.log("Attempting to send transaction...");
+        const tx = await universalHook.submitIntent(
+            poolKey,
             intent.tokenIn,
             intent.tokenOut,
-            encryptedAmount,
+            encrypted.handle,
+            encrypted.inputProof,
+            deadline,
             {
                 nonce: nonce,
                 gasLimit: 5000000,
-                gasPrice: feeData.gasPrice
-            }            
+                gasPrice: gasPrice
+            }
         );
-        
+
         console.log(`Transaction submitted: ${tx.hash}`);
-        const receipt = await tx.wait();
-        
+        console.log("Waiting for confirmation (this may take 15-30 seconds)...");
+
+        // Add timeout for transaction confirmation
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Transaction timeout after 2 minutes")), 120000)
+        );
+
+        const receipt = await Promise.race([
+            tx.wait(1), // Wait for 1 confirmation
+            timeoutPromise
+        ]) as any;
+        console.log("transaction receipt with hash:", receipt.hash);
         // Parse events from the receipt
         const intentSubmittedEvent = receipt.logs.find((log: any) => {
             try {
-                const parsed = mockHook.interface.parseLog(log);
+                const parsed = universalHook.interface.parseLog(log);
                 return parsed?.name === "IntentSubmitted";
             } catch {
                 return false;
@@ -154,7 +203,7 @@ async function submitEncryptedIntent(
         });
         
         if (intentSubmittedEvent) {
-            const intentParsed = mockHook.interface.parseLog(intentSubmittedEvent);
+            const intentParsed = universalHook.interface.parseLog(intentSubmittedEvent);
             const intentId = intentParsed?.args.intentId;
             
             console.log(`✅ Intent submitted successfully!`);
@@ -170,98 +219,200 @@ async function submitEncryptedIntent(
     }
 }
 
-async function main() {
-    console.log("Starting Encrypted Swap Task Generator");
-    console.log("=====================================\n");
-    
-    // Initialize CoFHE.js for real FHE encryption
-    console.log("Initializing CoFHE.js...");
-    
-    await cofhejs.initializeWithEthers({
-        ethersProvider: provider,
-        ethersSigner: wallet,
-        environment: 'MOCK'
-    });
-    
-    // Try to create a permit for FHE operations (may fail but not critical for mock)
+// Track last processed block to avoid duplicate submissions
+let lastProcessedBlock = 0;
+let isProcessingIntent = false;
+
+async function submitHelperCounterIntent(
+    universalHook: ethers.Contract,
+    poolKey: any,
+    userTokenIn: string,
+    userTokenOut: string
+): Promise<void> {
+    if (isProcessingIntent) {
+        console.log("Already processing an intent, skipping...");
+        return;
+    }
+
+    isProcessingIntent = true;
+
     try {
-        await cofhejs.createPermit();
-        console.log("Permit created successfully");
-    } catch (permitError) {
-        console.log("Permit creation skipped (not critical for mock environment)");
-    }
-    
-    console.log("CoFHE.js initialized successfully");
-    console.log("Real FHE encryption enabled\n");
-    
-    // Check if MockHook is deployed
-    if (!mockHookAddress) {
-        console.error("MockPrivacyHook not deployed. Please run:");
-        console.error("cd contracts && forge script script/DeployWithMockHook.s.sol --rpc-url http://localhost:8545 --broadcast");
-        process.exit(1);
-    }
-    
-    // Initialize contracts
-    const mockHook = new ethers.Contract(mockHookAddress, MockHookABI, wallet);
-    const swapManager = new ethers.Contract(avsDeploymentData.addresses.SwapManager, SwapManagerABI, wallet);
-    
-    // Check if MockHook is authorized
-    const isAuthorized = await swapManager.authorizedHooks(mockHookAddress);
-    console.log(`MockHook authorized in SwapManager: ${isAuthorized}`);
-    
-    if (!isAuthorized) {
-        console.error("MockHook is not authorized! Run the deployment script again.");
-        process.exit(1);
-    }
-    
-    // Check if there are registered operators
-    const operatorCount = await swapManager.getOperatorCount();
-    console.log(`Registered operators: ${operatorCount}`);
-    
-    if (operatorCount === 0) {
-        console.warn("⚠️  No operators registered yet. Tasks will be created but won't be processed.");
-        console.warn("   Please start the operator first: npm run start:operator");
-    }
-    
-    // Submit intents to create a batch
-    console.log("\nSubmitting encrypted intents to batch...");
-    const submittedIntentIds: string[] = [];
-    
-    for (let i = 0; i < testIntents.length; i++) {
-        const intentId = await submitEncryptedIntent(mockHook, testIntents[i]);
+        // Submit 1 token in opposite direction
+        const helperIntent: SwapIntent = {
+            tokenIn: userTokenOut,  // Opposite direction
+            tokenOut: userTokenIn,  // Opposite direction
+            amount: BigInt(1 * 1e6), // Fixed 1 token (6 decimals)
+            description: "Helper counter-intent (1 token)"
+        };
+
+        console.log("\n🤖 Auto-submitting helper counter-intent (1 token in opposite direction)...");
+        const intentId = await submitEncryptedIntent(universalHook, poolKey, helperIntent);
+
         if (intentId) {
-            submittedIntentIds.push(intentId);
+            console.log(`✅ Helper counter-intent submitted: ${intentId}`);
+
+            // Wait ~48 seconds (4 blocks) then submit finalization trigger
+            console.log("⏰ Scheduling finalization trigger in 48 seconds...");
+            setTimeout(async () => {
+                await submitFinalizationTrigger(universalHook, poolKey);
+            }, 48000);
         }
-        
-        // Small delay between intents
-        if (i < testIntents.length - 1) {
-            console.log("\nWaiting 2 seconds before next intent...");
-            await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+        console.error("❌ Error submitting helper intent:", error);
+    } finally {
+        isProcessingIntent = false;
+    }
+}
+
+async function submitFinalizationTrigger(
+    universalHook: ethers.Contract,
+    poolKey: any
+): Promise<void> {
+    try {
+        console.log("\n🎯 Submitting finalization trigger (tiny intent to force batch processing)...");
+
+        const tinyIntent: SwapIntent = {
+            tokenIn: USDC_ADDRESS,
+            tokenOut: USDT_ADDRESS,
+            amount: BigInt(200), // 200 wei to avoid Uniswap minimum swap revert
+            description: "Finalization trigger"
+        };
+
+        const intentId = await submitEncryptedIntent(universalHook, poolKey, tinyIntent);
+        if (intentId) {
+            console.log(`✅ Finalization trigger submitted: ${intentId}`);
+            console.log("📦 Batch should finalize and settle within 1-2 minutes!");
+        }
+    } catch (error) {
+        console.error("❌ Error submitting finalization trigger:", error);
+    }
+}
+
+async function main() {
+    console.log("🚀 Starting Helper Intent Auto-Submission Service");
+    console.log("===================================================\n");
+
+    // Initialize ZAMA FHEVM for real FHE encryption
+    console.log("Initializing ZAMA FHEVM...");
+
+    // Initialize both the operator's FHEVM and the instance for encryption
+    await initializeFhevm(wallet);
+    await initializeFhevmInstance();
+
+    console.log("✅ ZAMA FHEVM initialized successfully");
+    console.log("✅ Real FHE encryption enabled\n");
+
+    // Initialize UniversalPrivacyHook contract
+    const universalHook = new ethers.Contract(UNIVERSAL_PRIVACY_HOOK, UniversalHookABI, wallet);
+
+    // Create PoolKey for the USDC/USDT pool
+    // Order tokens correctly (lower address first)
+    const [currency0, currency1] = USDC_ADDRESS.toLowerCase() < USDT_ADDRESS.toLowerCase()
+        ? [USDC_ADDRESS, USDT_ADDRESS]
+        : [USDT_ADDRESS, USDC_ADDRESS];
+
+    const poolKey = {
+        currency0: currency0,
+        currency1: currency1,
+        fee: 3000, // 0.3% fee
+        tickSpacing: 60,
+        hooks: UNIVERSAL_PRIVACY_HOOK
+    };
+
+    console.log("Pool Key:", poolKey);
+    console.log("Helper Wallet:", wallet.address);
+    console.log("\n📡 Monitoring for IntentSubmitted events...");
+    console.log("🤖 Will auto-submit 1 token counter-intent for each user swap");
+    console.log("⏰ Will auto-trigger batch finalization 60s after counter-intent\n");
+
+    // Get current block to start monitoring from
+    lastProcessedBlock = await provider.getBlockNumber();
+    console.log(`Starting from block: ${lastProcessedBlock}\n`);
+
+    // Poll for new intents every 12 seconds (1 block time on Sepolia)
+    const pollInterval = 12000; // 12 seconds
+
+    async function pollForNewIntents() {
+        try {
+            const currentBlock = await provider.getBlockNumber();
+
+            // Ensure we don't query backwards
+            if (currentBlock <= lastProcessedBlock) {
+                return;
+            }
+
+            console.log(`📡 Polling blocks ${lastProcessedBlock + 1} to ${currentBlock}...`);
+
+            // Query for IntentSubmitted events in the new blocks
+            const filter = universalHook.filters.IntentSubmitted();
+            const events = await universalHook.queryFilter(filter, lastProcessedBlock + 1, currentBlock);
+
+            console.log(`   Found ${events.length} IntentSubmitted events`);
+
+            for (const log of events) {
+                // Cast to EventLog to access args
+                const event = log as ethers.EventLog;
+                if (!event.args) continue;
+
+                const { tokenIn, tokenOut, user, intentId } = event.args;
+                const blockNumber = event.blockNumber;
+
+                // Skip if it's our helper wallet
+                if (user.toLowerCase() === wallet.address.toLowerCase()) {
+                    continue;
+                }
+
+                console.log(`\n🔔 New intent detected from user: ${user.substring(0, 8)}...`);
+                console.log(`   Token In: ${tokenIn === USDC_ADDRESS ? 'USDC' : 'USDT'}`);
+                console.log(`   Token Out: ${tokenOut === USDC_ADDRESS ? 'USDC' : 'USDT'}`);
+                console.log(`   Intent ID: ${intentId}`);
+                console.log(`   Block: ${blockNumber}`);
+
+                // Submit helper counter-intent
+                await submitHelperCounterIntent(universalHook, poolKey, tokenIn, tokenOut);
+            }
+
+            // Check for batch events too
+            const batchFinalizedFilter = universalHook.filters.BatchFinalized();
+            const batchFinalizedEvents = await universalHook.queryFilter(batchFinalizedFilter, lastProcessedBlock + 1, currentBlock);
+
+            for (const log of batchFinalizedEvents) {
+                const event = log as ethers.EventLog;
+                if (!event.args) continue;
+                const { batchId, intentCount } = event.args;
+                console.log(`\n📦 Batch ${batchId} finalized with ${intentCount} intents!`);
+                console.log("   Waiting for AVS operator to decrypt and settle...");
+            }
+
+            const batchSettledFilter = universalHook.filters.BatchSettled();
+            const batchSettledEvents = await universalHook.queryFilter(batchSettledFilter, lastProcessedBlock + 1, currentBlock);
+
+            for (const log of batchSettledEvents) {
+                const event = log as ethers.EventLog;
+                if (!event.args) continue;
+                const { batchId, internalizedCount, netSwapCount } = event.args;
+                console.log(`\n✅ Batch ${batchId} settled!`);
+                console.log(`   Internalized transfers: ${internalizedCount}`);
+                console.log(`   Net swaps: ${netSwapCount}`);
+            }
+
+            lastProcessedBlock = currentBlock;
+        } catch (error: any) {
+            console.error("Error polling for events:", error.message || error);
+            // If we get a block range error, reset to current block
+            if (error.message?.includes('block range') || error.message?.includes('end') || error.message?.includes('begin')) {
+                const currentBlock = await provider.getBlockNumber();
+                lastProcessedBlock = currentBlock;
+                console.log(`Reset to current block: ${currentBlock}`);
+            }
         }
     }
-    
-    console.log(`\n=== All ${submittedIntentIds.length} intents submitted ===`);
-    
-    // In production, batches auto-finalize after the block interval (5 blocks)
-    // when a new intent arrives. The operator monitors for BatchFinalized events.
-    console.log("\nBatches will auto-finalize after 5 blocks when new intents arrive.");
-    console.log("Operators are monitoring for BatchFinalized events from SwapManager.");
-    
-    // Monitor for batch settlement events
-    console.log("\nMonitoring for batch settlements...");
-    
-    swapManager.on("BatchSettlementSubmitted", (batchId: string, internalizedCount: number, netSwapCount: number) => {
-        console.log(`\n📨 Batch ${batchId} settlement submitted!`);
-        console.log(`   Internalized transfers: ${internalizedCount}`);
-        console.log(`   Net swaps: ${netSwapCount}`);
-    });
-    
-    swapManager.on("BatchSettled", (batchId: string, success: boolean) => {
-        console.log(`\n✅ Batch ${batchId} settled: ${success ? 'SUCCESS' : 'FAILED'}`);
-    });
-    
-    // Keep the script running to monitor events
-    console.log("\nPress Ctrl+C to exit...");
+
+    // Start polling
+    setInterval(pollForNewIntents, pollInterval);
+
+    // Keep the script running
+    console.log("✅ Service running with 12s polling... Press Ctrl+C to exit\n");
 }
 
 // Execute main function

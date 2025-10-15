@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 pragma solidity >=0.8.25 <0.9.0;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Strings} from "@oz-v5/contracts/utils/Strings.sol";
 import {FHE} from "./FHE.sol";
 import {FunctionId, Utils} from "./ICofhe.sol";
 import {console} from "forge-std/console.sol";

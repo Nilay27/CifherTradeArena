@@ -3,7 +3,7 @@
 
 pragma solidity >=0.8.19 <0.9.0;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Strings} from "@oz-v5/contracts/utils/Strings.sol";
 import {FunctionId, ITaskManager, Utils, EncryptedInput, InEbool, InEuint8, InEuint16, InEuint32, InEuint64, InEuint128, InEuint256, InEaddress} from "./ICofhe.sol";
 
 type ebool is uint256;

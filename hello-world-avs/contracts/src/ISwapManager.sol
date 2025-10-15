@@ -1,98 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
 
+import {InEaddress, InEuint32, InEuint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+
 interface ISwapManager {
-    // ============ ORIGINAL SINGLE TASK SYSTEM (for backward compatibility) ============
+    // ============ BATCH SYSTEM ============
     
-    // Events
-    event NewSwapTaskCreated(uint32 indexed taskIndex, SwapTask task);
-    event SwapTaskResponded(uint32 indexed taskIndex, SwapTask task, address operator, uint256 decryptedAmount);
-
-    // Original SwapTask struct - KEPT for test compatibility
-    struct SwapTask {
-        address hook;           // Privacy hook contract address
-        address user;           // User submitting the swap
-        address tokenIn;        // Token being swapped from
-        address tokenOut;       // Token being swapped to
-        bytes encryptedAmount;  // FHE encrypted swap amount
-        uint64 deadline;        // Swap deadline
-        uint32 taskCreatedBlock;
-        address[] selectedOperators; // Operators selected for decryption
-    }
-    
-    // Legacy Task struct that tests use
-    struct Task {
-        string name;
-        uint32 taskCreatedBlock;
-    }
-
-    // Original view functions
-    function latestTaskNum() external view returns (uint32);
-    function allTaskHashes(uint32 taskIndex) external view returns (bytes32);
-    function allTaskResponses(address operator, uint32 taskIndex) external view returns (bytes memory);
-    function getTask(uint32 taskIndex) external view returns (SwapTask memory);
-    
-    // Original core functions
-    function createNewSwapTask(
-        address user,
-        address tokenIn,
-        address tokenOut,
-        bytes calldata encryptedAmount,
-        uint64 deadline
-    ) external returns (SwapTask memory);
-
-    function respondToSwapTask(
-        SwapTask calldata task,
-        uint32 referenceTaskIndex,
-        uint256 decryptedAmount,
-        bytes calldata signature
-    ) external;
-
-    function slashOperator(
-        SwapTask calldata task,
-        uint32 referenceTaskIndex,
-        address operator
-    ) external;
-    
-    // Test compatibility functions (HelloWorldServiceManager tests use these)
-    function createNewTask(string memory name) external returns (Task memory);
-    function respondToTask(Task calldata task, uint32 referenceTaskIndex, bytes calldata signature) external;
-    function slashOperator(Task calldata task, uint32 referenceTaskIndex, address operator) external;
-    
-    // ============ NEW BATCH SYSTEM (added functionality) ============
-    
-    // Batch structures
-    struct TokenTransfer {
-        bytes32 intentIdA;
-        bytes32 intentIdB;
-        address userA;
-        address userB;
-        address tokenA;
-        address tokenB;
-        bytes encryptedAmountA;  // FHE encrypted amount
-        bytes encryptedAmountB;  // FHE encrypted amount
-    }
-    
-    struct NetSwap {
-        address tokenIn;
-        address tokenOut;
-        uint256 netAmount;
-        bytes32[] remainingIntents;
-    }
-    
-    struct BatchSettlement {
-        bytes32 batchId;
-        TokenTransfer[] internalizedTransfers;
-        NetSwap netSwap;
-        bool hasNetSwap;
-        uint256 totalInternalized;
-        uint256 totalNet;
-    }
+    // Batch structures (removed - not used with hook's settlement structure)
     
     struct Batch {
         bytes32 batchId;
         bytes32[] intentIds;
-        address poolId;
+        bytes32 poolId;  // Changed from address to bytes32 to match PoolId type
         address hook;
         uint32 createdBlock;
         uint32 finalizedBlock;
@@ -107,9 +26,7 @@ interface ISwapManager {
     }
 
     // Batch events
-    event BatchFinalized(bytes32 indexed batchId, bytes batchData);
     event BatchSettlementSubmitted(bytes32 indexed batchId, uint256 internalizedCount, uint256 netSwapCount);
-    event BatchSettled(bytes32 indexed batchId, bool success);
     event OperatorSelectedForBatch(bytes32 indexed batchId, address indexed operator);
 
     // Batch functions
@@ -118,17 +35,16 @@ interface ISwapManager {
         bytes calldata batchData
     ) external;
     
-    function submitBatchSettlement(
-        BatchSettlement calldata settlement,
-        bytes[] calldata operatorSignatures
-    ) external;
-    
     // Batch view functions
     function getBatch(bytes32 batchId) external view returns (Batch memory);
     function getOperatorCount() external view returns (uint256);
     function isOperatorSelectedForBatch(bytes32 batchId, address operator) external view returns (bool);
     function isOperatorRegistered(address operator) external view returns (bool);
     function registerOperatorForBatches() external;
+
+    // Batch events
+    event BatchFinalized(bytes32 indexed batchId, bytes batchData);
+    event BatchSettled(bytes32 indexed batchId, bool success);
 
     // ============ UEI (Universal Encrypted Intent) SYSTEM ============
 
@@ -141,15 +57,23 @@ interface ISwapManager {
         Expired
     }
 
-    // UEI task structure
+    // UEI task structure (minimal storage - ctBlob emitted in events only)
     struct UEITask {
         bytes32 intentId;
         address submitter;
-        bytes ctBlob;  // Contains encrypted decoder, target, selector, args
+        bytes32 batchId;         // Which batch this trade belongs to
         uint256 deadline;
-        uint256 blockSubmitted;
-        address[] selectedOperators;
         UEIStatus status;
+    }
+
+    // Trade batch structure for batching similar trades
+    struct TradeBatch {
+        bytes32[] intentIds;     // Trade IDs in this batch
+        uint256 createdAt;       // Timestamp when batch created
+        uint256 finalizedAt;     // Timestamp when finalized
+        bool finalized;          // Whether finalized
+        bool executed;           // Whether executed
+        address[] selectedOperators; // Operators for this batch
     }
 
     // UEI execution record
@@ -165,12 +89,18 @@ interface ISwapManager {
     }
 
     // UEI events
-    event UEISubmitted(
-        bytes32 indexed intentId,
+    event TradeSubmitted(
+        bytes32 indexed tradeId,
         address indexed submitter,
-        bytes ctBlob,
-        uint256 deadline,
-        address[] selectedOperators
+        bytes32 indexed batchId,
+        bytes ctBlob,           // Operators decode this off-chain
+        uint256 deadline
+    );
+
+    event UEIBatchFinalized(
+        bytes32 indexed batchId,
+        address[] selectedOperators,
+        uint256 finalizedAt
     );
 
     event UEIProcessed(
@@ -182,10 +112,16 @@ interface ISwapManager {
     event BoringVaultSet(address indexed vault);
 
     // UEI functions
-    function submitUEI(
-        bytes calldata ctBlob,
+    // Note: Import FHE types from @fhenixprotocol/cofhe-contracts/FHE.sol
+    function submitEncryptedUEI(
+        InEaddress calldata decoder,
+        InEaddress calldata target,
+        InEuint32 calldata selector,
+        InEuint256[] calldata args,
         uint256 deadline
     ) external returns (bytes32 intentId);
+
+    function finalizeUEIBatch() external;
 
     function processUEI(
         bytes32 intentId,
@@ -200,4 +136,5 @@ interface ISwapManager {
     // UEI view functions
     function getUEITask(bytes32 intentId) external view returns (UEITask memory);
     function getUEIExecution(bytes32 intentId) external view returns (UEIExecution memory);
+    function getTradeBatch(bytes32 batchId) external view returns (TradeBatch memory);
 }

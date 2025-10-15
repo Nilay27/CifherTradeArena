@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { initializeCofheJs, batchDecryptAmounts, encryptAmount } from "./cofheUtils";
-import { initializeUEIProcessor, processUEI, monitorUEIEvents, decodeUEIBlob, reconstructCalldata } from './ueiProcessor';
+import { initializeFhevm, batchDecryptAmounts, batchEncryptAmounts } from "./fhevmUtils";
+import { startUEIProcessor } from './ueiProcessor';
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -15,7 +15,7 @@ if (!Object.keys(process.env).length) {
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
 /// TODO: Hack
-let chainId = 31337;
+let chainId = 11155111; // Sepolia
 
 const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/swap-manager/${chainId}.json`), 'utf8'));
 // Load core deployment data
@@ -86,7 +86,10 @@ const registerOperator = async () => {
 
         // Sign the digest hash with the operator's private key
         console.log("Signing digest hash with operator's private key");
-        const operatorSigningKey = new ethers.SigningKey(process.env.PRIVATE_KEY!);
+        const privateKey = process.env.PRIVATE_KEY!.startsWith('0x')
+            ? process.env.PRIVATE_KEY!
+            : '0x' + process.env.PRIVATE_KEY!;
+        const operatorSigningKey = new ethers.SigningKey(privateKey);
         const operatorSignedDigestHash = operatorSigningKey.sign(operatorDigestHash);
 
         // Encode the signature in the required format
@@ -152,79 +155,89 @@ interface Intent {
     tokenIn: string;
     tokenOut: string;
     encryptedAmount: string;
+    deadline?: bigint;
     decryptedAmount?: bigint;
 }
 
-// Structure for matched trades
-interface InternalizedTransfer {
-    intentIdA: string;
-    intentIdB: string;
-    userA: string;
-    userB: string;
-    tokenA: string;
-    tokenB: string;
-    amountA: bigint;
-    amountB: bigint;
-    encryptedAmountA: string;  // Keep encrypted amounts for privacy
-    encryptedAmountB: string;  // Keep encrypted amounts for privacy
+// Structure for internal transfers matching the hook's interface
+interface InternalTransfer {
+    to: string;
+    encToken: string;  // The encrypted token contract address
+    encAmount: bigint;  // The encrypted amount (euint128 as bigint/ctHash)
 }
 
-// Structure for net swap
-interface NetSwap {
+// Structure for user shares in AMM output
+interface UserShare {
+    user: string;
+    shareNumerator: bigint;
+    shareDenominator: bigint;
+}
+
+// Structure for the complete settlement
+interface SettlementData {
+    internalTransfers: InternalTransfer[];
+    netAmountIn: bigint;
+    zeroForOne: boolean;
     tokenIn: string;
     tokenOut: string;
-    netAmount: bigint;
-    remainingIntents: string[];
+    outputToken: string;
+    userShares: UserShare[];
+    inputProof: string;
 }
 
-// FIFO matching algorithm based on Python implementation
-const matchIntents = (intents: Intent[]): { internalized: InternalizedTransfer[], netSwaps: Map<string, NetSwap> } => {
+// FIFO matching algorithm - keep the original working logic
+const matchIntents = async (intents: Intent[], encryptedTokenMap: Map<string, string>): Promise<SettlementData> => {
     console.log(`\n=== Starting FIFO Order Matching ===`);
     console.log(`Processing ${intents.length} intents`);
-    
-    const internalized: InternalizedTransfer[] = [];
+
+    const internalTransfers: InternalTransfer[] = [];
     const unmatchedByPair = new Map<string, Intent[]>();
-    
-    // Group intents by trading pair
+
+    // Track matches for creating proper internal transfers
+    interface MatchedPair {
+        userA: string;
+        userB: string;
+        tokenA: string;
+        tokenB: string;
+        amount: bigint;
+    }
+    const matchedPairs: MatchedPair[] = [];
+
+    // Group intents by trading pair - KEEP ORIGINAL LOGIC
     for (const intent of intents) {
         const pair = `${intent.tokenIn}->${intent.tokenOut}`;
         const reversePair = `${intent.tokenOut}->${intent.tokenIn}`;
-        
+
         // Check if there's a matching intent in the opposite direction
         const reverseQueue = unmatchedByPair.get(reversePair) || [];
-        
+
         if (reverseQueue.length > 0) {
             // Match with first intent in reverse queue (FIFO)
             const matchedIntent = reverseQueue[0];
-            const matchAmount = intent.decryptedAmount! < matchedIntent.decryptedAmount! 
-                ? intent.decryptedAmount! 
+            const matchAmount = intent.decryptedAmount! < matchedIntent.decryptedAmount!
+                ? intent.decryptedAmount!
                 : matchedIntent.decryptedAmount!;
-            
-            // Create internalized transfer (encrypted amounts will be added later)
-            internalized.push({
-                intentIdA: matchedIntent.intentId,
-                intentIdB: intent.intentId,
+
+            // Store the matched pair for internal transfers
+            matchedPairs.push({
                 userA: matchedIntent.user,
                 userB: intent.user,
                 tokenA: matchedIntent.tokenIn,
-                tokenB: intent.tokenIn,
-                amountA: matchAmount,
-                amountB: matchAmount,
-                encryptedAmountA: "",  // Will be encrypted during settlement preparation
-                encryptedAmountB: ""   // Will be encrypted during settlement preparation
+                tokenB: intent.tokenIn, // intent.tokenIn = matchedIntent.tokenOut
+                amount: matchAmount
             });
-            
+
             console.log(`Matched: ${matchedIntent.user} <-> ${intent.user} for ${matchAmount}`);
-            
+
             // Update or remove matched intent
             matchedIntent.decryptedAmount! -= matchAmount;
             if (matchedIntent.decryptedAmount! === 0n) {
                 reverseQueue.shift();
             }
-            
+
             // Update current intent
             intent.decryptedAmount! -= matchAmount;
-            
+
             // If intent still has remaining amount, add to unmatched
             if (intent.decryptedAmount! > 0n) {
                 if (!unmatchedByPair.has(pair)) {
@@ -240,263 +253,361 @@ const matchIntents = (intents: Intent[]): { internalized: InternalizedTransfer[]
             unmatchedByPair.get(pair)!.push(intent);
         }
     }
-    
+
+    // Collect all amounts to encrypt for matched pairs
+    const amountsToEncrypt: bigint[] = [];
+    for (const match of matchedPairs) {
+        amountsToEncrypt.push(match.amount); // For tokenB transfer
+        amountsToEncrypt.push(match.amount); // For tokenA transfer
+    }
+
+    // Batch encrypt all matched amounts in one call
+    let encryptedAmounts: bigint[] = [];
+    let inputProof: string = "0x";
+    if (amountsToEncrypt.length > 0) {
+        console.log(`Batch encrypting ${amountsToEncrypt.length} transfer amounts...`);
+        // Hook calls FHE.fromExternal (contractAddress)
+        // SwapManager is msg.sender to Hook (userAddress)
+        const batchResult = await batchEncryptAmounts(
+            amountsToEncrypt,
+            process.env.SWAP_MANAGER_ADDRESS,  // userAddress (msg.sender to Hook)
+            process.env.HOOK_ADDRESS           // contractAddress (calls fromExternal)
+        );
+        encryptedAmounts = batchResult.encryptedAmounts;
+        inputProof = batchResult.inputProof;
+    }
+
+    // Create internal transfers from matched pairs using batch encrypted amounts
+    let encryptIdx = 0;
+    for (const match of matchedPairs) {
+        // Transfer tokenA from userA to userB (userA gives tokenA, wants tokenB's opposite)
+        internalTransfers.push({
+            to: match.userB,
+            encToken: encryptedTokenMap.get(match.tokenA) || match.tokenA, // Use encrypted token address
+            encAmount: encryptedAmounts[encryptIdx++]
+        });
+
+        // Transfer tokenB from userB to userA (userB gives tokenB, wants tokenA's opposite)
+        internalTransfers.push({
+            to: match.userA,
+            encToken: encryptedTokenMap.get(match.tokenB) || match.tokenB, // Use encrypted token address
+            encAmount: encryptedAmounts[encryptIdx++]
+        });
+    }
+
     // Calculate net swaps for remaining unmatched intents
-    const netSwaps = new Map<string, NetSwap>();
+    let netAmountIn = 0n;
+    let tokenIn = ethers.ZeroAddress;
+    let tokenOut = ethers.ZeroAddress;
+    const userSharesMap = new Map<string, bigint>();
+
+    // Process all unmatched intents to find the dominant trading pair
     for (const [pair, unmatched] of unmatchedByPair.entries()) {
         if (unmatched.length > 0) {
-            const [tokenIn, tokenOut] = pair.split('->');
-            const totalAmount = unmatched.reduce((sum, intent) => sum + intent.decryptedAmount!, 0n);
-            
-            netSwaps.set(pair, {
-                tokenIn,
-                tokenOut,
-                netAmount: totalAmount,
-                remainingIntents: unmatched.map(i => i.intentId)
-            });
-            
-            console.log(`Net swap needed: ${pair} - Amount: ${totalAmount}`);
+            const [pairTokenIn, pairTokenOut] = pair.split('->');
+
+            // Use the first pair as the primary swap direction
+            if (tokenIn === ethers.ZeroAddress) {
+                tokenIn = pairTokenIn;
+                tokenOut = pairTokenOut;
+            }
+
+            // Only count intents that match our primary swap direction
+            if (pairTokenIn === tokenIn && pairTokenOut === tokenOut) {
+                for (const intent of unmatched) {
+                    netAmountIn += intent.decryptedAmount!;
+                    userSharesMap.set(intent.user,
+                        (userSharesMap.get(intent.user) || 0n) + intent.decryptedAmount!
+                    );
+                }
+            }
         }
     }
-    
-    console.log(`Matching complete: ${internalized.length} internalized, ${netSwaps.size} net swaps`);
-    return { internalized, netSwaps };
+
+    // Convert user shares to the proper format
+    const userShares: UserShare[] = [];
+    if (netAmountIn > 0n) {
+        for (const [user, amount] of userSharesMap.entries()) {
+            userShares.push({
+                user,
+                shareNumerator: amount,
+                shareDenominator: netAmountIn
+            });
+        }
+    }
+
+    // outputToken should be the ENCRYPTED token contract, not the underlying token
+    // If there's no net AMM swap (all matched internally), use zero address
+    let outputEncryptedToken: string;
+    if (tokenOut === ethers.ZeroAddress) {
+        outputEncryptedToken = ethers.ZeroAddress;
+    } else {
+        const encToken = encryptedTokenMap.get(tokenOut);
+        if (!encToken) {
+            throw new Error(`No encrypted token found for ${tokenOut}`);
+        }
+        outputEncryptedToken = encToken;
+    }
+
+    console.log(`\n=== Matching Complete ===`);
+    console.log(`Internal transfers: ${internalTransfers.length / 2} pairs (${internalTransfers.length} transfers)`);
+    console.log(`Net AMM swap: ${netAmountIn} ${tokenIn} -> ${tokenOut}`);
+    console.log(`Output encrypted token: ${outputEncryptedToken}`);
+    console.log(`User shares: ${userShares.length}`);
+
+    // Determine zeroForOne based on token ordering
+    // Pool's currency0 < currency1 by address, so compare tokenIn with currency0
+    const zeroForOne = tokenIn.toLowerCase() < tokenOut.toLowerCase();
+
+    return {
+        internalTransfers,
+        netAmountIn,
+        zeroForOne,
+        tokenIn,
+        tokenOut,
+        outputToken: outputEncryptedToken, // Use encrypted token contract address
+        userShares,
+        inputProof
+    }
 };
 
-const processBatch = async (batchId: string, batchData: any) => {
+const processBatch = async (batchId: string, batchData: string) => {
     try {
         console.log(`\n=== Processing Batch ${batchId} ===`);
-        
-        // Decode batch data to get intent IDs
-        const [intentIds] = ethers.AbiCoder.defaultAbiCoder().decode(
-            ["bytes32[]", "address"],
+
+        // Decode the batch data from SwapManager.BatchFinalized event
+        // Format: abi.encode(batchId, batch.intentIds, poolId, address(this), encryptedIntents)
+        const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
+            ["bytes32", "bytes32[]", "bytes32", "address", "bytes[]"],
             batchData
         );
-        
-        console.log(`Batch contains ${intentIds.length} intents`);
-        
-        // For this mock, we need to fetch intent details from MockPrivacyHook
-        // In production, this would come from the batch data or be queried
+
+        const [decodedBatchId, intentIds, poolId, hookAddr, encryptedIntentData] = decoded;
+
+        console.log(`Batch ID: ${decodedBatchId}`);
+        console.log(`Pool ID: ${poolId}`);
+        console.log(`Hook: ${hookAddr}`);
+        console.log(`Number of intents: ${encryptedIntentData.length}`);
+
+        // We need to get encrypted token addresses from the hook
+        // For now, we'll need to query them or include them in the batch data
+        // TODO: Add encrypted token mapping to batch data or query from hook
+
+        const hookABI = [
+            "function poolEncryptedTokens(bytes32 poolId, address currency) view returns (address)"
+        ];
+        const hookContract = new ethers.Contract(hookAddr, hookABI, provider);
+
+        // Decode all encrypted intents first
         const intents: Intent[] = [];
-        
-        // Fetch intent details from UniversalPrivacyHook contract
-        // First try to load UniversalPrivacyHook address, fallback to MockPrivacyHook
-        let hookAddress: string;
-        let isUniversalHook = false;
+        const encryptedAmountsToDecrypt: string[] = [];
 
-        try {
-            // Try to load UniversalPrivacyHook deployment
-            const universalHookDeployment = JSON.parse(
-                fs.readFileSync(path.resolve(__dirname, `../../universal-privacy-hook/deployments/latest.json`), 'utf8')
+        for (let i = 0; i < encryptedIntentData.length; i++) {
+            const intentData = encryptedIntentData[i];
+            const intentDecoded = ethers.AbiCoder.defaultAbiCoder().decode(
+                ["bytes32", "address", "address", "address", "uint256", "uint256"],
+                intentData
             );
-            if (universalHookDeployment.universalPrivacyHook) {
-                hookAddress = universalHookDeployment.universalPrivacyHook;
-                isUniversalHook = true;
-                console.log(`Using UniversalPrivacyHook at: ${hookAddress}`);
-            } else {
-                throw new Error("UniversalPrivacyHook not found");
-            }
-        } catch (e) {
-            // Fallback to MockPrivacyHook
-            const mockHookDeployment = JSON.parse(
-                fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/mock-hook/${chainId}.json`), 'utf8')
-            );
-            hookAddress = mockHookDeployment.addresses.mockPrivacyHook;
-            console.log(`Using MockPrivacyHook at: ${hookAddress}`);
+
+            const intent: Intent = {
+                intentId: intentDecoded[0],
+                user: intentDecoded[1],
+                tokenIn: intentDecoded[2],
+                tokenOut: intentDecoded[3],
+                encryptedAmount: intentDecoded[4].toString(), // Keep as string of the uint256 handle
+                deadline: BigInt(intentDecoded[5].toString())
+            };
+
+            intents.push(intent);
+            encryptedAmountsToDecrypt.push(intent.encryptedAmount);
         }
 
-        if (!hookAddress) {
-            console.error("No hook address found in deployment");
-            return;
-        }
-
-        // Load the appropriate ABI based on which hook we're using
-        let hookABI;
-        if (isUniversalHook) {
-            // For UniversalPrivacyHook, we need the getIntent function
-            // Since we don't have the full ABI, we'll define just what we need
-            hookABI = [
-                'function getIntent(bytes32) external view returns (address user, address tokenIn, address tokenOut, bytes encryptedAmount)'
-            ];
-        } else {
-            hookABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/MockPrivacyHook.json'), 'utf8'));
-        }
-
-        const mockHook = new ethers.Contract(hookAddress, hookABI, wallet);
-        
-        // Fetch and decrypt each intent
-        console.log("Fetching and decrypting intents...");
-        for (const intentId of intentIds) {
-            try {
-                const intent = await mockHook.getIntent(intentId);
-                intents.push({
-                    intentId: intentId,
-                    user: intent.user,
-                    tokenIn: intent.tokenIn,
-                    tokenOut: intent.tokenOut,
-                    encryptedAmount: intent.encryptedAmount
-                });
-            } catch (error) {
-                console.error(`Failed to fetch intent ${intentId}:`, error);
-            }
-        }
-        
-        // Batch decrypt all amounts using actual FHE decryption
-        console.log("\nDecrypting FHE encrypted amounts...");
-        const encryptedAmounts = intents.map(i => i.encryptedAmount);
-        const decryptedAmounts = await batchDecryptAmounts(encryptedAmounts);
-        
-        // Assign decrypted amounts to intents
-        intents.forEach((intent, index) => {
-            intent.decryptedAmount = decryptedAmounts[index];
-            console.log(`Intent ${index}: ${intent.user.slice(0,6)}... ${intent.tokenIn}->${intent.tokenOut}: ${intent.decryptedAmount}`);
+        // Get encrypted token addresses for this pool
+        const uniqueTokens = new Set<string>();
+        intents.forEach(i => {
+            uniqueTokens.add(i.tokenIn);
+            uniqueTokens.add(i.tokenOut);
         });
-        
-        // Run FIFO matching algorithm
-        const { internalized, netSwaps } = matchIntents(intents);
-        
-        // Prepare settlement data - use arrays instead of objects for ABI encoding
-        // For internalized transfers, we need to encrypt the amounts for privacy
-        const internalizedTransfers = await Promise.all(internalized.map(async t => {
-            // Encrypt amounts for internalized transfers (for transferFromEncrypted)
-            const encryptedAmountA = await encryptAmount(t.amountA);
-            const encryptedAmountB = await encryptAmount(t.amountB);
-            
-            return [
-                t.intentIdA,
-                t.intentIdB,
-                t.userA,
-                t.userB,
-                t.tokenA,
-                t.tokenB,
-                encryptedAmountA,  // bytes - FHE encrypted for privacy
-                encryptedAmountB   // bytes - FHE encrypted for privacy
-            ];
-        }));
-        
-        // For simplicity, take the first net swap if exists
-        let netSwap: {
-            tokenIn: string;
-            tokenOut: string;
-            netAmount: bigint;
-            remainingIntents: string[];
-        } = {
-            tokenIn: ethers.ZeroAddress,
-            tokenOut: ethers.ZeroAddress,
-            netAmount: 0n,
-            remainingIntents: []
-        };
-        let hasNetSwap = false;
 
-        if (netSwaps.size > 0) {
-            const firstNetSwap = netSwaps.values().next().value;
-            if (firstNetSwap) {
-                netSwap = firstNetSwap;
-                hasNetSwap = true;
-            }
+        const encryptedTokenMap = new Map<string, string>();
+        for (const token of uniqueTokens) {
+            const encToken = await hookContract.poolEncryptedTokens(poolId, token);
+            encryptedTokenMap.set(token, encToken);
+            console.log(`Encrypted token for ${token}: ${encToken}`);
         }
-        
-        // Calculate totals
-        const totalInternalized = internalized.reduce((sum, t) => sum + t.amountA + t.amountB, 0n);
-        const totalNet = netSwap.netAmount;
-        
-        // Create settlement object for the contract
-        const settlement = {
-            batchId: batchId,
-            internalizedTransfers: internalizedTransfers,
-            netSwap: [netSwap.tokenIn, netSwap.tokenOut, netSwap.netAmount, netSwap.remainingIntents],
-            hasNetSwap: hasNetSwap,
-            totalInternalized: totalInternalized,
-            totalNet: totalNet
-        };
-        
-        // Create message hash and sign - encode as a single tuple
-        // TokenTransfer now uses bytes for encrypted amounts instead of uint256
-        const messageHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-            ["tuple(bytes32,tuple(bytes32,bytes32,address,address,address,address,bytes,bytes)[],tuple(address,address,uint256,bytes32[]),bool,uint256,uint256)"],
-            [[
-                batchId,
-                internalizedTransfers,
-                [netSwap.tokenIn, netSwap.tokenOut, netSwap.netAmount, netSwap.remainingIntents],
-                hasNetSwap,
-                totalInternalized,
-                totalNet
-            ]]
-        ));
-        
-        const messageBytes = ethers.getBytes(ethers.toBeHex(messageHash, 32));
-        const signature = await wallet.signMessage(messageBytes);
-        
-        console.log(`\nSubmitting settlement with ${internalized.length} internalized transfers...`);
-        
-        // Get current nonce to avoid conflicts
-        const nonce = await wallet.getNonce();
-        
-        // Submit settlement to SwapManager
-        // For testing, send the same signature 3 times to meet MIN_ATTESTATIONS requirement
-        const tx = await SwapManager.submitBatchSettlement(
-            settlement,
-            [signature, signature, signature], // In production, would collect signatures from multiple operators
-            { nonce }
+
+        // Batch decrypt all amounts in one call
+        console.log(`\nBatch decrypting ${intents.length} intents...`);
+        const decryptedAmounts = await batchDecryptAmounts(encryptedAmountsToDecrypt);
+
+        // Assign decrypted amounts back to intents
+        for (let i = 0; i < intents.length; i++) {
+            intents[i].decryptedAmount = decryptedAmounts[i];
+            console.log(`Intent ${i + 1}: ${intents[i].user}`);
+            console.log(`  ${intents[i].tokenIn} -> ${intents[i].tokenOut}`);
+            console.log(`  Amount: ${intents[i].decryptedAmount}`);
+        }
+
+        // Match intents and get settlement data (pass encrypted token map)
+        const settlementData = await matchIntents(intents, encryptedTokenMap);
+
+        // Submit settlement to SwapManager (NOT hook directly!)
+        console.log("\n=== Submitting Settlement to SwapManager ===");
+
+        // Convert internalTransfers encAmount from bigint to bytes32 hex for contract call
+        const internalTransfersForContract = settlementData.internalTransfers.map(t => ({
+            to: t.to,
+            encToken: t.encToken,
+            encAmount: ethers.toBeHex(t.encAmount, 32) // Convert bigint to bytes32
+        }));
+
+        // Create message hash using solidityPackedKeccak256 to match contract's abi.encodePacked
+        const messageHash = ethers.solidityPackedKeccak256(
+            ["bytes32", "uint128", "address", "address", "address"],
+            [
+                decodedBatchId,
+                settlementData.netAmountIn,
+                settlementData.tokenIn,
+                settlementData.tokenOut,
+                settlementData.outputToken
+            ]
         );
-        
-        await tx.wait();
-        console.log(`Successfully submitted settlement for batch ${batchId}`);
-        console.log(`Transaction hash: ${tx.hash}`);
-        
+
+        // Sign the message hash - signMessage will add EIP-191 prefix automatically
+        const signature = await wallet.signMessage(ethers.getBytes(messageHash));
+
+        console.log(`Message hash: ${messageHash}`);
+        console.log(`Signature: ${signature}`);
+
+        // Debug: recover signer to verify
+        const recoveredSigner = ethers.verifyMessage(ethers.getBytes(messageHash), signature);
+        console.log(`Operator address: ${wallet.address}`);
+        console.log(`Recovered signer: ${recoveredSigner}`);
+        console.log(`Match: ${recoveredSigner.toLowerCase() === wallet.address.toLowerCase()}`);
+
+        // Get current gas price and boost by 20% for faster transactions
+        const feeData = await provider.getFeeData();
+        const gasPrice = (feeData.gasPrice! * 120n) / 100n;
+        console.log(`Using gas price (120% boost): ${gasPrice.toString()}`);
+
+        // Debug: log all parameters before submission
+        console.log("\n=== Settlement Parameters ===");
+        console.log("Batch ID:", decodedBatchId);
+        console.log("Internal Transfers:", internalTransfersForContract.length);
+        console.log("Net Amount In:", settlementData.netAmountIn.toString());
+        console.log("Token In:", settlementData.tokenIn);
+        console.log("Token Out:", settlementData.tokenOut);
+        console.log("Output Token:", settlementData.outputToken);
+        console.log("User Shares:", settlementData.userShares.length);
+        console.log("Input Proof length:", settlementData.inputProof.length);
+        console.log("Signatures:", [signature].length);
+
+        // Submit to SwapManager.submitBatchSettlement()
+        const tx = await SwapManager.submitBatchSettlement(
+            decodedBatchId,
+            internalTransfersForContract,
+            settlementData.netAmountIn,
+            settlementData.tokenIn,
+            settlementData.tokenOut,
+            settlementData.outputToken,
+            settlementData.userShares,
+            settlementData.inputProof,
+            [signature], // Array of operator signatures
+            {
+                gasLimit: 5000000, // Manual gas limit to avoid estimation issues
+                gasPrice: gasPrice // 120% of current gas price for faster inclusion
+            }
+        );
+
+        console.log(`Settlement transaction submitted: ${tx.hash}`);
+        const receipt = await tx.wait();
+        console.log(`Settlement confirmed in block ${receipt.blockNumber}`);
+
+        return {
+            batchId: decodedBatchId,
+            settlementData,
+            txHash: tx.hash,
+            blockNumber: receipt.blockNumber
+        };
     } catch (error) {
         console.error(`Error processing batch ${batchId}:`, error);
     }
 };
 
 const monitorBatches = async () => {
-    // Listen for BatchFinalized events
-    SwapManager.on("BatchFinalized", async (batchId: string, batchData: any) => {
-        console.log(`\n🚀 New batch detected: ${batchId}`);
-        
-        // Check if this operator is selected for this batch
-        const isSelected = await SwapManager.isOperatorSelectedForBatch(batchId, wallet.address);
-        
-        if (isSelected) {
-            console.log("✅ This operator is selected for the batch!");
-            // Process the batch
-            await processBatch(batchId, batchData);
-        } else {
-            console.log("❌ This operator was not selected for this batch");
-        }
-    });
-    
-    console.log("Monitoring for new batches...");
-    
-    // Query past BatchFinalized events
+    console.log("✅ Monitoring for new batches from SwapManager...");
+
+    let lastProcessedBlock = await provider.getBlockNumber();
+    const processedBatches = new Set<string>();
+
+    // Query past BatchFinalized events first
     try {
         const filter = SwapManager.filters.BatchFinalized();
-        const currentBlock = await provider.getBlockNumber();
-        const fromBlock = Math.max(0, currentBlock - 100);
-        const events = await SwapManager.queryFilter(filter, fromBlock, currentBlock);
-        
+        const fromBlock = Math.max(0, lastProcessedBlock - 1000);
+        const events = await SwapManager.queryFilter(filter, fromBlock, lastProcessedBlock);
+
         if (events.length > 0) {
-            console.log(`Found ${events.length} past BatchFinalized events in the last 100 blocks`);
+            console.log(`Found ${events.length} past BatchFinalized events`);
             for (const event of events) {
-                const parsed = SwapManager.interface.parseLog(event);
-                if (parsed) {
-                    console.log(`Past batch: ${parsed.args[0]}, Block: ${event.blockNumber}`);
+                const parsedLog = SwapManager.interface.parseLog({
+                    topics: event.topics as string[],
+                    data: event.data
+                });
+                if (parsedLog) {
+                    const batchId = parsedLog.args[0];
+                    console.log(`  Past batch: ${batchId}, Block: ${event.blockNumber}`);
+                    processedBatches.add(batchId);
                 }
             }
         } else {
-            console.log("No past BatchFinalized events found in the last 100 blocks");
+            console.log("No past BatchFinalized events found");
         }
     } catch (error) {
         console.error("Error querying past events:", error);
     }
+
+    // Use polling instead of event listeners for Ankr RPC
+    console.log("Starting event polling (Ankr doesn't support filters)...");
+    setInterval(async () => {
+        try {
+            const currentBlock = await provider.getBlockNumber();
+
+            if (currentBlock > lastProcessedBlock) {
+                const filter = SwapManager.filters.BatchFinalized();
+                const events = await SwapManager.queryFilter(filter, lastProcessedBlock + 1, currentBlock);
+
+                for (const event of events) {
+                    const parsedLog = SwapManager.interface.parseLog({
+                        topics: event.topics as string[],
+                        data: event.data
+                    });
+
+                    if (parsedLog) {
+                        const batchId = parsedLog.args[0];
+                        const batchData = parsedLog.args[1];
+
+                        if (!processedBatches.has(batchId)) {
+                            console.log(`\n🚀 New batch detected: ${batchId}`);
+                            console.log(`  Block: ${event.blockNumber}`);
+                            console.log(`  Transaction: ${event.transactionHash}`);
+
+                            processedBatches.add(batchId);
+                            await processBatch(batchId, batchData);
+                        }
+                    }
+                }
+
+                lastProcessedBlock = currentBlock;
+            }
+        } catch (error) {
+            console.error("Error in polling:", error);
+        }
+    }, 5000); // Poll every 5 seconds
 };
 
 const main = async () => {
-    // Initialize CoFHE.js for FHE operations
-    await initializeCofheJs(wallet);
-
-    // Initialize UEI processor with the same wallet
-    await initializeUEIProcessor(wallet);
+    // Initialize ZAMA FHEVM for FHE operations
+    await initializeFhevm(wallet);
 
     await registerOperator();
 
@@ -506,8 +617,8 @@ const main = async () => {
     });
 
     // Monitor for UEI events
-    console.log("\n🔍 Starting UEI monitoring...");
-    monitorUEIEvents(SwapManager, wallet.address);
+    // console.log("\n🔍 Starting UEI monitoring...");
+    // monitorUEIEvents(SwapManager, wallet, SwapManagerAddress);
 };
 
 main().catch((error) => {

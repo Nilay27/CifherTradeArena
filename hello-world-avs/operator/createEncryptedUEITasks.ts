@@ -1,325 +1,280 @@
+/**
+ * Create Encrypted UEI Tasks - Simplified for Testing
+ *
+ * This script submits a simple USDC transfer UEI to the SwapManager
+ * Flow:
+ * 1. Encrypt: decoder (address), target (USDC), selector (transfer), args [recipient, amount]
+ * 2. Submit to SwapManager.submitEncryptedUEI(ctBlob, inputProof, deadline)
+ * 3. Wait for batch finalization (handled by keeper or manual call)
+ * 4. Operator will decrypt and process (handled by ueiProcessor.ts)
+ */
+
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
-import { encryptAmount, initializeCofheJs } from './cofheUtils';
+import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/node';
 
 dotenv.config();
 
-const PROVIDER_URL = process.env.RPC_URL || 'http://localhost:8545';
-const PRIVATE_KEY = process.env.PRIVATE_KEY || '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const PROVIDER_URL = process.env.RPC_URL || 'https://sepolia.infura.io/v3/YOUR_KEY';
+const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 
-// Argument types
-enum ArgType {
-    ADDR = 0,
-    U256 = 1,
-    U16 = 2,
-    U32 = 3,
-    U64 = 4,
-    U128 = 5
+// Sepolia testnet addresses
+const SWAP_MANAGER = '0xE1e00b5d08a08Cb141a11a922e48D4c06d66D3bf';
+const BORING_VAULT = '0x4D2a5229C238EEaF5DB0912eb4BE7c39575369f0';
+const USDC_SEPOLIA = '0x59dd1A3Bd1256503cdc023bfC9f10e107d64C3C1'; // Sepolia USDC
+
+// Mock decoder for ERC20 transfers (for testing - in production would be verified via merkle tree)
+// Using a valid address format - decoder validation will be added with merkle tree in BoringVault
+const MOCK_ERC20_DECODER = '0x0000000000000000000000000000000000000001';
+
+// Initialize FHEVM instance
+let fhevmInstance: any = null;
+
+async function initializeFhevmInstance() {
+    if (!fhevmInstance) {
+        console.log("Creating FHEVM instance for encryption...");
+        fhevmInstance = await createInstance({
+            ...SepoliaConfig,
+            network: PROVIDER_URL
+        });
+        console.log("✅ FHEVM instance created");
+    }
+    return fhevmInstance;
 }
 
-// Example trade strategies - focusing on Aave and basic token operations
-const TRADE_STRATEGIES = [
-    {
-        name: "Aave Supply USDC",
-        decoder: "0x0000000000000000000000000000000000DEC0",  // Mock Aave decoder
-        target: "0x0000000000000000000000000000000000AA7E",   // Mock Aave pool
-        selector: "0x617ba037",  // supply(address,uint256,address,uint16)
-        argTypes: [ArgType.ADDR, ArgType.U256, ArgType.ADDR, ArgType.U16],
-        args: [
-            "0x0000000000000000000000000000000000000001",  // USDC token
-            "1000000000",  // 1000 USDC (6 decimals)
-            null,  // Will use boringVault address
-            "0"    // No referral
-        ]
-    },
-    {
-        name: "Aave Supply USDT",
-        decoder: "0x0000000000000000000000000000000000DEC0",  // Mock Aave decoder
-        target: "0x0000000000000000000000000000000000AA7E",   // Mock Aave pool
-        selector: "0x617ba037",  // supply(address,uint256,address,uint16)
-        argTypes: [ArgType.ADDR, ArgType.U256, ArgType.ADDR, ArgType.U16],
-        args: [
-            "0x0000000000000000000000000000000000000002",  // USDT token
-            "500000000",   // 500 USDT (6 decimals)
-            null,  // Will use boringVault address
-            "0"    // No referral
-        ]
-    },
-    {
-        name: "Aave Supply DAI",
-        decoder: "0x0000000000000000000000000000000000DEC0",  // Mock Aave decoder
-        target: "0x0000000000000000000000000000000000AA7E",   // Mock Aave pool
-        selector: "0x617ba037",  // supply(address,uint256,address,uint16)
-        argTypes: [ArgType.ADDR, ArgType.U256, ArgType.ADDR, ArgType.U16],
-        args: [
-            "0x0000000000000000000000000000000000000003",  // DAI token
-            "2000000000000000000000",  // 2000 DAI (18 decimals)
-            null,  // Will use boringVault address
-            "0"    // No referral
-        ]
-    },
-    {
-        name: "USDC Approve to Aave",
-        decoder: "0x0000000000000000000000000000000000DEC1",  // Mock ERC20 decoder
-        target: "0x0000000000000000000000000000000000000001",   // USDC token
-        selector: "0x095ea7b3",  // approve(address,uint256)
-        argTypes: [ArgType.ADDR, ArgType.U256],
-        args: [
-            "0x0000000000000000000000000000000000AA7E",  // Aave pool
-            "1000000000000"  // 1M USDC approval
-        ]
-    },
-    {
-        name: "USDC Transfer",
-        decoder: "0x0000000000000000000000000000000000DEC1",  // Mock ERC20 decoder
-        target: "0x0000000000000000000000000000000000000001",   // USDC token
-        selector: "0xa9059cbb",  // transfer(address,uint256)
-        argTypes: [ArgType.ADDR, ArgType.U256],
-        args: [
-            "0x0000000000000000000000000000000000001234",  // Recipient
-            "100000000"  // 100 USDC
-        ]
-    }
-];
-
-async function encryptUEIComponent(value: string | number): Promise<bigint> {
-    // Convert to bigint for encryption
-    let bigIntValue: bigint;
-
-    if (typeof value === 'string' && value.startsWith('0x')) {
-        // For addresses/hex values, convert to bigint
-        bigIntValue = BigInt(value);
-    } else if (typeof value === 'string') {
-        // For numeric strings
-        bigIntValue = BigInt(value);
-    } else {
-        // For numbers
-        bigIntValue = BigInt(value);
-    }
-
-    const encrypted = await encryptAmount(bigIntValue);
-
-    // The encryptAmount returns an encoded string, decode it to get the ctHash
-    const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
-        ["uint256"],
-        encrypted
-    )[0];
-
-    return BigInt(decoded);
-}
-
-async function createEncryptedUEI(provider: ethers.Provider, wallet: ethers.Wallet) {
+/**
+ * Batch encrypt all UEI components
+ * NEW FORMAT: No argTypes! All args are euint256
+ */
+async function batchEncryptUEIComponents(
+    decoder: string,
+    target: string,
+    selector: string,
+    args: (string | bigint)[],
+    contractAddress: string,
+    signerAddress: string
+): Promise<{
+    encryptedDecoder: any;
+    encryptedTarget: any;
+    encryptedSelector: any;
+    encryptedArgs: any[];
+    inputProof: string;
+}> {
     try {
-        console.log("🔐 Creating Encrypted Universal Intent (UEI)...\n");
+        console.log("🔐 Batch encrypting UEI components...");
+        console.log(`  Decoder: ${decoder}`);
+        console.log(`  Target: ${target}`);
+        console.log(`  Selector: ${selector}`);
+        console.log(`  Args (${args.length}):`, args);
 
-        // Load contract addresses
-        const deploymentPath = './contracts/deployments/swap-manager/31337.json';
-        const mockHookDeploymentPath = './contracts/deployments/mock-hook/31337.json';
+        const fhevm = await initializeFhevmInstance();
+        const encryptedInput = fhevm.createEncryptedInput(contractAddress, signerAddress);
 
-        if (!fs.existsSync(deploymentPath) || !fs.existsSync(mockHookDeploymentPath)) {
-            console.error('Deployment files not found. Please run deployment first.');
-            return;
+        // Encrypt decoder as eaddress
+        encryptedInput.addAddress(ethers.getAddress(decoder));
+
+        // Encrypt target as eaddress
+        encryptedInput.addAddress(ethers.getAddress(target));
+
+        // Encrypt selector as euint32
+        const selectorBigInt = BigInt(selector);
+        encryptedInput.add32(Number(selectorBigInt & BigInt(0xFFFFFFFF)));
+
+        // Encrypt all args as euint256 (NO argTypes!)
+        for (const arg of args) {
+            const argBigInt = typeof arg === 'string' ? BigInt(arg) : arg;
+            encryptedInput.add256(argBigInt);
         }
 
-    const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
-    const mockHookDeployment = JSON.parse(fs.readFileSync(mockHookDeploymentPath, 'utf8'));
+        // Encrypt all in one call
+        const encrypted = await encryptedInput.encrypt();
 
-    const swapManagerAddress = deployment.addresses.SwapManager;
-    const mockHookAddress = mockHookDeployment.addresses.mockPrivacyHook;
-    const boringVaultAddress = mockHookDeployment.addresses.boringVault || "0x0000000000000000000000000000000000B041";
+        console.log("✅ Encrypted components:");
+        console.log(`  Total handles: ${encrypted.handles.length}`);
+        console.log(`  Input proof length: ${encrypted.inputProof.length} bytes`);
 
-    console.log("SwapManager:", swapManagerAddress);
-    console.log("MockPrivacyHook:", mockHookAddress);
-    console.log("BoringVault:", boringVaultAddress);
-
-    // Load ABIs
-    const mockHookAbi = JSON.parse(fs.readFileSync('./abis/MockPrivacyHook.json', 'utf8'));
-    const swapManagerAbi = JSON.parse(fs.readFileSync('./abis/SwapManager.json', 'utf8'));
-
-    // Create contract instances
-    const mockHook = new ethers.Contract(mockHookAddress, mockHookAbi, wallet);
-    const swapManager = new ethers.Contract(swapManagerAddress, swapManagerAbi, wallet);
-
-    // Select a strategy (weighted towards Aave supply)
-    const random = Math.random();
-    let strategy;
-    if (random < 0.6) {
-        // 60% chance of Aave supply operations
-        strategy = TRADE_STRATEGIES[Math.floor(Math.random() * 3)]; // First 3 are Aave supplies
-    } else if (random < 0.8) {
-        // 20% chance of approve
-        strategy = TRADE_STRATEGIES[3];
-    } else {
-        // 20% chance of transfer
-        strategy = TRADE_STRATEGIES[4];
+        return {
+            encryptedDecoder: encrypted.handles[0],
+            encryptedTarget: encrypted.handles[1],
+            encryptedSelector: encrypted.handles[2],
+            encryptedArgs: encrypted.handles.slice(3),
+            inputProof: ethers.hexlify(encrypted.inputProof)
+        };
+    } catch (error) {
+        console.error("❌ Encryption failed:", error);
+        throw error;
     }
+}
 
-    console.log(`\n📊 Selected Strategy: ${strategy.name}`);
+/**
+ * Create and submit a simple USDC transfer UEI
+ */
+async function createUSDCTransferUEI() {
+    try {
+        console.log("\n🚀 Creating USDC Transfer UEI\n");
+        console.log("=" .repeat(60));
 
-    // Encrypt each component
-    console.log("\n🔐 Encrypting UEI components...");
+        // Setup provider and wallet
+        const provider = new ethers.JsonRpcProvider(PROVIDER_URL);
+        const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
-        // Encrypt decoder address
-        const ctDecoder = await encryptUEIComponent(strategy.decoder);
-        console.log("  ✅ Encrypted decoder:", ctDecoder.toString());
+        console.log("👤 Submitter wallet:", wallet.address);
+        console.log("💰 Boring Vault:", BORING_VAULT);
+        console.log("🏦 SwapManager:", SWAP_MANAGER);
+        console.log("💵 USDC:", USDC_SEPOLIA);
 
-        // Encrypt target address
-        const ctTarget = await encryptUEIComponent(strategy.target);
-        console.log("  ✅ Encrypted target:", ctTarget.toString());
+        // Load SwapManager ABI
+        const swapManagerAbi = JSON.parse(
+            fs.readFileSync('./abis/SwapManager.json', 'utf8')
+        );
+        const swapManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, wallet);
 
-        // Encrypt selector
-        const ctSelector = await encryptUEIComponent(strategy.selector);
-        console.log("  ✅ Encrypted selector:", ctSelector.toString());
+        // Simple USDC transfer parameters
+        // transfer(address to, uint256 amount)
+        const transferSelector = '0xa9059cbb'; // transfer function selector
+        const recipient = wallet.address; // Transfer to deployer for testing
+        const amount = ethers.parseUnits('100', 6); // 100 USDC (6 decimals)
 
-        // Encrypt arguments
-        console.log("\n🔐 Encrypting arguments...");
-        const ctArgs: bigint[] = [];
-        for (let i = 0; i < strategy.args.length; i++) {
-            let arg = strategy.args[i];
+        console.log("\n📋 Transfer Details:");
+        console.log(`  From: ${BORING_VAULT} (BoringVault)`);
+        console.log(`  To: ${recipient}`);
+        console.log(`  Amount: ${ethers.formatUnits(amount, 6)} USDC`);
+        console.log(`  Selector: ${transferSelector}`);
 
-            // Replace null with boringVault address
-            if (arg === null) {
-                arg = boringVaultAddress;
-            }
+        // Initialize FHEVM
+        await initializeFhevmInstance();
 
-            // Ensure arg is not null before encryption
-            if (arg === null || arg === undefined) {
-                throw new Error(`Argument at index ${i} is null or undefined`);
-            }
-
-            const encryptedArg = await encryptUEIComponent(arg as string | number);
-            ctArgs.push(encryptedArg);
-            console.log(`  ✅ Encrypted arg[${i}]:`, encryptedArg.toString());
-        }
-
-        // Create the blob
-        const ctBlob = ethers.AbiCoder.defaultAbiCoder().encode(
-            ['uint256', 'uint256', 'uint256', 'uint8[]', 'uint256[]'],
+        // Batch encrypt: decoder, target, selector, args
+        console.log("\n🔐 Encrypting UEI components...");
+        const encrypted = await batchEncryptUEIComponents(
+            MOCK_ERC20_DECODER,  // decoder
+            USDC_SEPOLIA,        // target (USDC contract)
+            transferSelector,    // selector (transfer)
             [
-                ctDecoder.toString(),
-                ctTarget.toString(),
-                ctSelector.toString(),
-                strategy.argTypes,
-                ctArgs.map(a => a.toString())
+                BigInt(recipient),  // arg[0]: recipient address as uint256
+                amount             // arg[1]: amount as uint256
+            ],
+            SWAP_MANAGER,        // contract address for encryption context
+            wallet.address       // signer address
+        );
+
+        // Create ctBlob with NEW FORMAT: NO argTypes!
+        // Format: abi.encode(bytes32 encDecoder, bytes32 encTarget, bytes32 encSelector, bytes32[] encArgs)
+        const ctBlob = ethers.AbiCoder.defaultAbiCoder().encode(
+            ['bytes32', 'bytes32', 'bytes32', 'bytes32[]'],
+            [
+                ethers.hexlify(encrypted.encryptedDecoder),
+                ethers.hexlify(encrypted.encryptedTarget),
+                ethers.hexlify(encrypted.encryptedSelector),
+                encrypted.encryptedArgs.map(handle => ethers.hexlify(handle))
             ]
         );
 
-        console.log("\n📦 Created encrypted blob, length:", ctBlob.length);
+        console.log("\n📦 Created ctBlob:");
+        console.log(`  Size: ${ctBlob.length} bytes`);
+        console.log(`  Input proof: ${encrypted.inputProof.length} chars`);
 
-        // Submit UEI through MockPrivacyHook
-        const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+        // Submit to SwapManager
+        const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
 
-        console.log("\n📤 Submitting UEI to MockPrivacyHook...");
-        console.log("  Blob size:", ctBlob.length, "bytes");
-        console.log("  Deadline:", deadline);
+        console.log("\n📤 Submitting UEI to SwapManager...");
+        console.log(`  Deadline: ${new Date(deadline * 1000).toLocaleString()}`);
 
-        // Get current nonce to avoid nonce issues
-        const nonce = await wallet.getNonce();
-        console.log("  Using nonce:", nonce);
+        const tx = await swapManager.submitEncryptedUEI(
+            ctBlob,
+            encrypted.inputProof,
+            deadline
+        );
 
-        const tx = await mockHook.submitUEIBlob(ctBlob, deadline, { nonce });
-        console.log("Transaction hash:", tx.hash);
+        console.log(`  Transaction hash: ${tx.hash}`);
+        console.log("  Waiting for confirmation...");
 
         const receipt = await tx.wait();
         console.log("✅ UEI submitted successfully!");
 
-        // Extract intent ID from events
-        const ueiEvent = receipt.logs.find((log: any) => {
+        // Extract intent ID from TradeSubmitted event
+        const tradeSubmittedEvent = receipt.logs.find((log: any) => {
             try {
-                const parsed = mockHook.interface.parseLog(log);
-                return parsed && parsed.name === 'UEISubmitted';
+                const parsed = swapManager.interface.parseLog(log);
+                return parsed && parsed.name === 'TradeSubmitted';
             } catch {
                 return false;
             }
         });
 
-        if (ueiEvent) {
-            const parsedEvent = mockHook.interface.parseLog(ueiEvent);
-            const intentId = parsedEvent?.args[0];
-            console.log("\n🎯 Intent ID:", intentId);
+        if (tradeSubmittedEvent) {
+            const parsed = swapManager.interface.parseLog(tradeSubmittedEvent);
+            const tradeId = parsed?.args[0];
+            const batchId = parsed?.args[2];
 
-            // Check if task was created in SwapManager
-            const task = await swapManager.getUEITask(intentId);
-            console.log("\n📋 UEI Task Details:");
-            console.log("  Submitter:", task.submitter);
-            console.log("  Deadline:", new Date(Number(task.deadline) * 1000).toLocaleString());
-            console.log("  Status:", ["Pending", "Processing", "Executed", "Failed", "Expired"][task.status]);
-            console.log("  Selected Operators:", task.selectedOperators.length);
+            console.log("\n🎯 Trade Details:");
+            console.log(`  Trade ID: ${tradeId}`);
+            console.log(`  Batch ID: ${batchId}`);
+            console.log(`  Submitter: ${parsed?.args[1]}`);
+            console.log(`  Deadline: ${new Date(Number(parsed?.args[4]) * 1000).toLocaleString()}`);
 
-            if (task.selectedOperators.length > 0) {
-                console.log("\n👥 Selected Operators:");
-                task.selectedOperators.forEach((op: string, i: number) => {
+            // Check task details
+            const task = await swapManager.getUEITask(tradeId);
+            console.log("\n📊 Task Status:");
+            console.log(`  Status: ${['Pending', 'Processing', 'Executed', 'Failed', 'Expired'][task.status]}`);
+            console.log(`  Batch ID: ${task.batchId}`);
+
+            console.log("\n⏳ Next Steps:");
+            console.log("  1. Waiting 5 seconds before triggering batch finalization...");
+            console.log("  2. Admin will forcefully finalize batch (admin override)");
+            console.log("  3. Operator will decrypt and process via ueiProcessor.ts");
+
+            // Wait 5 seconds
+            await new Promise(resolve => setTimeout(resolve, 5000));
+
+            console.log("\n🔨 Finalizing batch as admin...");
+            const finalizeTx = await swapManager.finalizeUEIBatch();
+            console.log(`  Transaction hash: ${finalizeTx.hash}`);
+            console.log("  Waiting for confirmation...");
+
+            const finalizeReceipt = await finalizeTx.wait();
+            console.log("✅ Batch finalized!");
+
+            // Extract UEIBatchFinalized event
+            const batchFinalizedEvent = finalizeReceipt.logs.find((log: any) => {
+                try {
+                    const parsed = swapManager.interface.parseLog(log);
+                    return parsed && parsed.name === 'UEIBatchFinalized';
+                } catch {
+                    return false;
+                }
+            });
+
+            if (batchFinalizedEvent) {
+                const parsed = swapManager.interface.parseLog(batchFinalizedEvent);
+                const finalizedBatchId = parsed?.args[0];
+                const selectedOperators = parsed?.args[1];
+                const finalizedAt = parsed?.args[2];
+
+                console.log("\n🎉 Batch Finalized Event:");
+                console.log(`  Batch ID: ${finalizedBatchId}`);
+                console.log(`  Selected Operators (${selectedOperators.length}):`);
+                selectedOperators.forEach((op: string, i: number) => {
                     console.log(`    ${i + 1}. ${op}`);
                 });
+                console.log(`  Finalized at: ${new Date(Number(finalizedAt) * 1000).toLocaleString()}`);
+                console.log("\n👂 Operator should now pick up and process this batch!");
             }
         }
-    } catch (error) {
-        console.error("Failed to create UEI:", error);
+
+        console.log("\n" + "=".repeat(60));
+
+    } catch (error: any) {
+        console.error("\n❌ Failed to create UEI:", error);
+        if (error.message) console.error("Error message:", error.message);
+        throw error;
     }
 }
 
-async function monitorUEIEvents(provider: ethers.Provider) {
-    console.log("\n👀 Monitoring for UEI events...\n");
-
-    const deploymentPath = './contracts/deployments/swap-manager/31337.json';
-    if (!fs.existsSync(deploymentPath)) {
-        console.error('Deployment file not found');
-        return;
-    }
-
-    const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
-    const swapManagerAddress = deployment.addresses.SwapManager;
-    const swapManagerAbi = JSON.parse(fs.readFileSync('./abis/SwapManager.json', 'utf8'));
-
-    const swapManager = new ethers.Contract(swapManagerAddress, swapManagerAbi, provider);
-
-    // Listen for UEI events
-    swapManager.on("UEISubmitted", (intentId, submitter, ctBlob, deadline, selectedOperators) => {
-        console.log("\n🚀 New UEI Submitted!");
-        console.log("  Intent ID:", intentId);
-        console.log("  Submitter:", submitter);
-        console.log("  Deadline:", new Date(Number(deadline) * 1000).toLocaleString());
-        console.log("  Selected Operators:", selectedOperators.length);
-    });
-
-    swapManager.on("UEIProcessed", (intentId, success, result) => {
-        console.log("\n✅ UEI Processed!");
-        console.log("  Intent ID:", intentId);
-        console.log("  Success:", success);
-        if (result && result.length > 0 && result !== '0x') {
-            console.log("  Result:", result);
-        }
-    });
+// Run if executed directly
+if (require.main === module) {
+    createUSDCTransferUEI().catch(console.error);
 }
 
-async function main() {
-    const provider = new ethers.JsonRpcProvider(PROVIDER_URL);
-    const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
-
-    console.log("👤 User wallet:", wallet.address);
-
-    // Initialize CoFHE.js for FHE operations
-    console.log("\n🔐 Initializing FHE encryption...");
-    await initializeCofheJs(wallet);
-    console.log("✅ FHE encryption initialized\n");
-
-    // Start monitoring
-    monitorUEIEvents(provider);
-
-    // Create UEIs periodically
-    const createUEI = async () => {
-        await createEncryptedUEI(provider, wallet);
-    };
-
-    // Create first UEI immediately
-    await createUEI();
-
-    // Then create one every 30 seconds
-    setInterval(createUEI, 30000);
-
-    console.log("\n⏰ Will create new UEIs every 30 seconds...");
-    console.log("Press Ctrl+C to stop\n");
-}
-
-main().catch(console.error);
+export { createUSDCTransferUEI };

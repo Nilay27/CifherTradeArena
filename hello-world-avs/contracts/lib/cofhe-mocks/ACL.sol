@@ -2,8 +2,8 @@
 // solhint-disable-next-line transient-storage
 pragma solidity >=0.8.25 <0.9.0;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Strings} from "@oz-v5/contracts/utils/Strings.sol";
+import {Ownable2Step, Ownable} from "@oz-v5/contracts/access/Ownable2Step.sol";
 import {MockPermissioned, Permission} from "./Permissioned.sol";
 import {TASK_MANAGER_ADDRESS} from "./FHE.sol";
 
@@ -74,9 +74,7 @@ contract ACL is Ownable2Step, MockPermissioned {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address initialOwner
-    ) Ownable() MockPermissioned() {
-        _transferOwnership(initialOwner);
-    }
+    ) Ownable(initialOwner) MockPermissioned() {}
 
     function exists() public pure returns (bool) {
         return true;

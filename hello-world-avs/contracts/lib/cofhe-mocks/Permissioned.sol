@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.19 <0.9.0;
 
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@oz-v5/contracts/utils/cryptography/SignatureChecker.sol";
+import {EIP712} from "@oz-v5/contracts/utils/cryptography/EIP712.sol";
 
 /**
  * @dev Permission body that must be passed to a contract to allow access to sensitive data.
