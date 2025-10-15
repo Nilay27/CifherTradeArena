@@ -3,24 +3,10 @@ pragma solidity ^0.8.12;
 
 import {Test} from "forge-std/Test.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
-import {FHE, InEaddress, InEuint32, InEuint256, euint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
-import {SwapManager} from "../src/SwapManager.sol";
+import {FHE, InEaddress, InEuint32, InEuint256, InEuint128, euint128, euint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {SwapManager, InternalTransferInput, IUniversalPrivacyHook} from "../src/SwapManager.sol";
 import {ISwapManager} from "../src/ISwapManager.sol";
 import {MockPrivacyHook} from "../src/MockPrivacyHook.sol";
-
-interface IUniversalPrivacyHookTypes {
-    struct InternalTransfer {
-        address to;
-        address encToken;
-        bytes32 encAmount;
-    }
-
-    struct UserShare {
-        address user;
-        uint128 shareNumerator;
-        uint128 shareDenominator;
-    }
-}
 
 contract SwapManagerBatchTest is Test, CoFheTest {
     SwapManager public swapManager;
@@ -64,6 +50,13 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         swapManager.registerOperatorForBatches();
     }
 
+    // Helper function to create FHE encrypted value and grant SwapManager permission
+    function createEncryptedForSwapManager(uint128 value) internal returns (euint128) {
+        euint128 encrypted = FHE.asEuint128(value);
+        FHE.allow(encrypted, address(swapManager));
+        return encrypted;
+    }
+
     function testBatchFinalization() public {
         // Create batch data matching UniversalPrivacyHook format
         bytes32[] memory intentIds = new bytes32[](2);
@@ -73,14 +66,18 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 batchId = keccak256("batch1");
         bytes32 poolId = keccak256("pool1");
 
-        // Create encrypted intent data
+        // Create encrypted intent data with proper FHE handles
+        // Use helper to create euint128 and grant SwapManager permission (mimics Hook behavior)
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc500 = createEncryptedForSwapManager(500);
+
         bytes[] memory encryptedIntents = new bytes[](2);
         encryptedIntents[0] = abi.encode(
             intentIds[0],
             user1,
             tokenA,
             tokenB,
-            uint256(1000), // encAmount handle
+            euint128.unwrap(enc1000), // Pass the FHE handle
             uint256(block.timestamp + 1 hours)
         );
         encryptedIntents[1] = abi.encode(
@@ -88,7 +85,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
             user1,
             tokenB,
             tokenA,
-            uint256(500),
+            euint128.unwrap(enc500), // Pass the FHE handle
             uint256(block.timestamp + 1 hours)
         );
 
@@ -129,13 +126,16 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         intentIds[0] = keccak256("intent1");
         bytes32 poolId = keccak256("pool1");
 
+        // Create proper FHE handle
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
             intentIds[0],
             user1,
             tokenA,
             tokenB,
-            uint256(1000),
+            euint128.unwrap(enc1000),
             uint256(block.timestamp + 1 hours)
         );
 
@@ -186,13 +186,16 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         intentIds[0] = keccak256("intent1");
         bytes32 poolId = keccak256("pool1");
 
+        // Create proper FHE handle
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
             intentIds[0],
             user1,
             tokenA,
             tokenB,
-            uint256(1000),
+            euint128.unwrap(enc1000),
             uint256(block.timestamp + 1 hours)
         );
 
@@ -229,13 +232,16 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         intentIds[0] = keccak256("intent1");
         bytes32 poolId = keccak256("pool1");
 
+        // Create proper FHE handle
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
             intentIds[0],
             user1,
             tokenA,
             tokenB,
-            uint256(1000),
+            euint128.unwrap(enc1000),
             uint256(block.timestamp + 1 hours)
         );
 
@@ -276,13 +282,16 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         intentIds[0] = keccak256("intent1");
         bytes32 poolId = keccak256("pool1");
 
+        // Create proper FHE handle
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
             intentIds[0],
             user1,
             tokenA,
             tokenB,
-            uint256(1000),
+            euint128.unwrap(enc1000),
             uint256(block.timestamp + 1 hours)
         );
 
@@ -306,13 +315,16 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         intentIds[0] = keccak256("intent1");
         bytes32 poolId = keccak256("pool1");
 
+        // Create proper FHE handle
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
             intentIds[0],
             user1,
             tokenA,
             tokenB,
-            uint256(1000),
+            euint128.unwrap(enc1000),
             uint256(block.timestamp + 1 hours)
         );
 
@@ -330,13 +342,215 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         swapManager.finalizeBatch(batchId, batchData);
     }
 
-    // Note: submitBatchSettlement tests are skipped due to Solidity struct compatibility issues
-    // The function uses IUniversalPrivacyHook structs which cannot be directly instantiated
-    // in tests. This would require either:
-    // 1. Exporting the interface structs to ISwapManager
-    // 2. Using low-level calls with manual ABI encoding
-    // 3. Creating a test wrapper contract
-    // For now, the function is covered by integration tests in the hook package
+    // ========== submitBatchSettlement Tests ==========
+
+    function testSubmitBatchSettlement() public {
+        // Setup: Create and finalize a batch
+        bytes32 batchId = keccak256("batch1");
+        bytes32[] memory intentIds = new bytes32[](2);
+        intentIds[0] = keccak256("intent1");
+        intentIds[1] = keccak256("intent2");
+        bytes32 poolId = keccak256("pool1");
+
+        // Create proper FHE handles
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc500 = createEncryptedForSwapManager(500);
+
+        bytes[] memory encryptedIntents = new bytes[](2);
+        encryptedIntents[0] = abi.encode(
+            intentIds[0],
+            user1,
+            tokenA,
+            tokenB,
+            euint128.unwrap(enc1000),
+            uint256(block.timestamp + 1 hours)
+        );
+        encryptedIntents[1] = abi.encode(
+            intentIds[1],
+            user1,
+            tokenB,
+            tokenA,
+            euint128.unwrap(enc500),
+            uint256(block.timestamp + 1 hours)
+        );
+
+        bytes memory batchData = abi.encode(
+            batchId,
+            intentIds,
+            poolId,
+            address(mockHook),
+            encryptedIntents
+        );
+
+        // Finalize batch as hook
+        vm.prank(address(mockHook));
+        swapManager.finalizeBatch(batchId, batchData);
+
+        // Get selected operator
+        address selectedOp = operator1;
+        if (!swapManager.isOperatorSelectedForBatch(batchId, operator1)) {
+            selectedOp = operator2;
+        }
+        if (!swapManager.isOperatorSelectedForBatch(batchId, selectedOp)) {
+            selectedOp = operator3;
+        }
+        assertTrue(swapManager.isOperatorSelectedForBatch(batchId, selectedOp), "No operator selected");
+
+        // Find operator private key
+        uint256 operatorPk = selectedOp == operator1 ? 2 : (selectedOp == operator2 ? 3 : 4);
+
+        // Prepare settlement data with InternalTransferInput
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](2);
+        internalTransfers[0] = InternalTransferInput({
+            to: user1,
+            encToken: tokenA,
+            encAmount: createInEuint128(150e6, selectedOp)
+        });
+        internalTransfers[1] = InternalTransferInput({
+            to: user1,
+            encToken: tokenB,
+            encAmount: createInEuint128(150e6, selectedOp)
+        });
+
+        // Prepare user shares
+        IUniversalPrivacyHook.UserShare[] memory userShares = new IUniversalPrivacyHook.UserShare[](1);
+        userShares[0] = IUniversalPrivacyHook.UserShare({
+            user: user1,
+            shareNumerator: 1,
+            shareDenominator: 1
+        });
+
+        // Create operator signature
+        bytes32 messageHash = keccak256(abi.encodePacked(
+            batchId,
+            uint128(50e6),  // netAmountIn
+            tokenA,         // tokenIn
+            tokenB,         // tokenOut
+            tokenB          // outputToken
+        ));
+        bytes32 ethSigned = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            messageHash
+        ));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(operatorPk, ethSigned);
+        bytes[] memory signatures = new bytes[](1);
+        signatures[0] = abi.encodePacked(r, s, v);
+
+        // Submit settlement as operator
+        vm.startPrank(selectedOp);
+        swapManager.submitBatchSettlement(
+            batchId,
+            internalTransfers,
+            50e6,           // netAmountIn
+            tokenA,         // tokenIn
+            tokenB,         // tokenOut
+            tokenB,         // outputToken
+            userShares,
+            signatures
+        );
+        vm.stopPrank();
+
+        // Verify batch is settled
+        ISwapManager.Batch memory batch = swapManager.getBatch(batchId);
+        assertEq(uint(batch.status), uint(ISwapManager.BatchStatus.Settled));
+    }
+
+    function testSubmitBatchSettlement_RevertNotOperator() public {
+        // Setup batch (simplified)
+        bytes32 batchId = keccak256("batch1");
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
+        IUniversalPrivacyHook.UserShare[] memory userShares = new IUniversalPrivacyHook.UserShare[](0);
+        bytes[] memory signatures = new bytes[](0);
+
+        // Try to submit from non-operator
+        vm.prank(user1);
+        vm.expectRevert("Operator must be the caller");
+        swapManager.submitBatchSettlement(
+            batchId,
+            internalTransfers,
+            0,
+            tokenA,
+            tokenB,
+            tokenB,
+            userShares,
+            signatures
+        );
+    }
+
+    function testSubmitBatchSettlement_RevertBatchNotProcessing() public {
+        bytes32 batchId = keccak256("batch1");
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
+        IUniversalPrivacyHook.UserShare[] memory userShares = new IUniversalPrivacyHook.UserShare[](0);
+        bytes[] memory signatures = new bytes[](1);
+        signatures[0] = new bytes(65);
+
+        // Try to submit without batch being in Processing state
+        vm.prank(operator1);
+        vm.expectRevert("Batch not processing");
+        swapManager.submitBatchSettlement(
+            batchId,
+            internalTransfers,
+            0,
+            tokenA,
+            tokenB,
+            tokenB,
+            userShares,
+            signatures
+        );
+    }
+
+    function testSubmitBatchSettlement_RevertInsufficientSignatures() public {
+        // Setup: Create and finalize a batch
+        bytes32 batchId = keccak256("batch1");
+        bytes32[] memory intentIds = new bytes32[](1);
+        intentIds[0] = keccak256("intent1");
+        bytes32 poolId = keccak256("pool1");
+
+        // Create proper FHE handle
+        euint128 enc1000 = createEncryptedForSwapManager(1000);
+
+        bytes[] memory encryptedIntents = new bytes[](1);
+        encryptedIntents[0] = abi.encode(
+            intentIds[0],
+            user1,
+            tokenA,
+            tokenB,
+            euint128.unwrap(enc1000),
+            uint256(block.timestamp + 1 hours)
+        );
+
+        bytes memory batchData = abi.encode(
+            batchId,
+            intentIds,
+            poolId,
+            address(mockHook),
+            encryptedIntents
+        );
+
+        vm.prank(address(mockHook));
+        swapManager.finalizeBatch(batchId, batchData);
+
+        // Prepare settlement with insufficient signatures (empty array)
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
+        IUniversalPrivacyHook.UserShare[] memory userShares = new IUniversalPrivacyHook.UserShare[](0);
+        bytes[] memory signatures = new bytes[](0);  // No signatures
+
+        vm.prank(operator1);
+        vm.expectRevert("Insufficient signatures");
+        swapManager.submitBatchSettlement(
+            batchId,
+            internalTransfers,
+            0,
+            tokenA,
+            tokenB,
+            tokenB,
+            userShares,
+            signatures
+        );
+    }
+
+    // ========== UEI Tests ==========
 
     function testSubmitUEI() public {
         // Create encrypted FHE inputs using CoFHE mocks (sender = user1)

@@ -3,6 +3,8 @@ pragma solidity ^0.8.27;
 
 import {ISwapManager} from "./ISwapManager.sol";
 import {SimpleBoringVault} from "./SimpleBoringVault.sol";
+import {FHE, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {Currency} from "./SwapManager.sol";
 
 /**
  * @title MockPrivacyHook
@@ -15,17 +17,15 @@ contract MockPrivacyHook {
 
     // Define types that match UniversalPrivacyHook
     struct InternalTransfer {
-        address from;
-        address to;
-        address token;
-        uint256 amount;
+        address to;             // User receiving tokens
+        address encToken;       // IFHERC20 token address (e.g., eUSDC or eUSDT contract)
+        euint128 encAmount;     // SwapManager loads InEuint128 to euint128 before passing here
     }
 
-    struct NetSwap {
-        address tokenIn;
-        address tokenOut;
-        uint256 amountIn;
-        uint256 amountOut;
+    struct UserShare {
+        address user;           // User address
+        uint128 shareNumerator; // User's share numerator (e.g., 4 for 4/5)
+        uint128 shareDenominator; // Share denominator (e.g., 5 for 4/5)
     }
     
     // Track submitted intents
@@ -171,25 +171,37 @@ contract MockPrivacyHook {
     
     /**
      * @notice Simulate batch settlement (called by AVS after consensus)
+     * @dev Matches UniversalPrivacyHook.settleBatch signature
      */
     function settleBatch(
         bytes32 batchId,
-        InternalTransfer[] calldata internalizedTransfers,
-        NetSwap calldata netSwap,
-        bool hasNetSwap
+        InternalTransfer[] calldata internalTransfers,
+        uint128 netAmountIn,
+        Currency tokenIn,
+        Currency tokenOut,
+        address outputToken,
+        UserShare[] calldata userShares
     ) external {
         require(msg.sender == address(swapManager), "Only SwapManager");
-        
-        Batch storage batch = batches[batchId];
-        require(batch.status == BatchStatus.Processing, "Invalid batch status");
-        
-        // Mark as settled
-        batch.status = BatchStatus.Settled;
-        
+
+        // For mock purposes, only mark as settled if batch exists in our tracking
+        // This allows tests to call SwapManager.finalizeBatch directly without
+        // going through MockPrivacyHook's batch creation flow
+        if (batches[batchId].intentIds.length > 0) {
+            Batch storage batch = batches[batchId];
+            // Only check status if batch was created through MockPrivacyHook
+            if (batch.status == BatchStatus.Processing) {
+                batch.status = BatchStatus.Settled;
+            }
+        }
+
         // In a real implementation, this would:
-        // 1. Execute internalized transfers
-        // 2. Execute net swap through Uniswap
-        // 3. Distribute outputs to users
+        // 1. Process internal transfers with encrypted amounts
+        // 2. Execute net swap through Uniswap if netAmountIn > 0
+        // 3. Distribute AMM outputs to users based on userShares
+
+        // For mock purposes, we just verify the call succeeded
+        // Tests can verify this function was called with correct parameters
     }
     
     /**
