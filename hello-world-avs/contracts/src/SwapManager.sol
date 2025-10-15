@@ -19,12 +19,19 @@ import {FHE, InEuint128, InEuint32, InEuint256, InEaddress, euint128, euint256, 
 // Currency type wrapper to match Uniswap V4
 type Currency is address;
 
+// Struct for AVS to submit InternalTransfers with InEuint128 (before loading)
+struct InternalTransferInput {
+    address to;
+    address encToken;
+    InEuint128 encAmount;  // AVS provides InEuint128 with signature
+}
+
 // Interface for the UniversalPrivacyHook (Fhenix CoFHE version)
 interface IUniversalPrivacyHook {
     struct InternalTransfer {
         address to;
         address encToken;
-        InEuint128 encAmount;  // Fhenix CoFHE: InEuint128 contains signature
+        euint128 encAmount;  // Hook receives loaded euint128
     }
 
     struct UserShare {
@@ -261,11 +268,11 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
     
     /**
      * @notice Submit batch settlement after off-chain matching
-     * @dev Fhenix CoFHE: No inputProof needed, InEuint128 contains signature
+     * @dev SwapManager loads InEuint128 to euint128 before forwarding to Hook
      */
     function submitBatchSettlement(
         bytes32 batchId,
-        IUniversalPrivacyHook.InternalTransfer[] calldata internalTransfers,
+        InternalTransferInput[] calldata internalTransfersInput,
         uint128 netAmountIn,
         address tokenIn,
         address tokenOut,
@@ -304,7 +311,25 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         // Update batch status
         batch.status = BatchStatus.Settled;
 
-        // Forward to hook - Fhenix CoFHE: InEuint128 already contains signature
+        // Load InEuint128 to euint128 in SwapManager (msg.sender context)
+        // This ensures FHE verification happens with SwapManager as msg.sender
+        IUniversalPrivacyHook.InternalTransfer[] memory internalTransfers =
+            new IUniversalPrivacyHook.InternalTransfer[](internalTransfersInput.length);
+
+        for (uint256 i = 0; i < internalTransfersInput.length; i++) {
+            euint128 loadedAmount = FHE.asEuint128(internalTransfersInput[i].encAmount);
+
+            // Allow Hook to use and grant permissions further (like Hook does for SwapManager in _finalizeBatch)
+            FHE.allowTransient(loadedAmount, batch.hook);
+
+            internalTransfers[i] = IUniversalPrivacyHook.InternalTransfer({
+                to: internalTransfersInput[i].to,
+                encToken: internalTransfersInput[i].encToken,
+                encAmount: loadedAmount
+            });
+        }
+
+        // Forward to hook with loaded euint128 values
         IUniversalPrivacyHook(batch.hook).settleBatch(
             batchId,
             internalTransfers,

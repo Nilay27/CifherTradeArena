@@ -33,7 +33,7 @@ import {HybridFHERC20} from "../src/HybridFHERC20.sol";
 
 // AVS Imports for testing integration
 import {ISwapManager} from "../src/interfaces/ISwapManager.sol";
-import {MockSwapManager, IHookSettlement} from "../src/test/MockSwapManager.sol";
+import {MockSwapManager, IHookSettlement, InternalTransferInput} from "../src/test/MockSwapManager.sol";
 
 interface IUniversalPrivacyHook {
     enum BatchStatus {
@@ -71,6 +71,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
     // Test Users
     address alice = address(0xABCD);
     address bob = address(0x1234);
+    address operator = address(0x9999); // AVS operator who submits settlements
 
     function setUp() public {
         // Deploy core contracts
@@ -407,21 +408,21 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         // Net swap: 50 USDC -> USDT (Alice's remaining)
 
         // Create internal transfers for the matched amounts
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](2);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](2);
 
         // Alice gets 150 USDT from internal match with Bob
-        // Fhenix CoFHE: InEuint128 must be signed by msg.sender (swapManager)
-        internalTransfers[0] = IHookSettlement.InternalTransfer({
+        // Operator encrypts with operator as sender (operator will call mockSettleBatch)
+        internalTransfers[0] = InternalTransferInput({
             to: alice,
             encToken: address(encryptedUSDT),
-            encAmount: createInEuint128(150e6, address(swapManager))
+            encAmount: createInEuint128(150e6, operator)
         });
 
         // Bob gets 150 USDC from internal match with Alice
-        internalTransfers[1] = IHookSettlement.InternalTransfer({
+        internalTransfers[1] = InternalTransferInput({
             to: bob,
             encToken: address(encryptedUSDC),
-            encAmount: createInEuint128(150e6, address(swapManager))
+            encAmount: createInEuint128(150e6, operator)
         });
 
         // UserShares: Alice gets 100% of the net swap output (50 USDC -> ~49 USDT)
@@ -432,8 +433,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
             shareDenominator: 1
         });
 
-        // Call settleBatch via MockSwapManager (no inputProof needed for Fhenix!)
-        vm.prank(address(swapManager));
+        // Operator calls mockSettleBatch (msg.sender = operator when FHE.asEuint128 is called)
+        vm.startPrank(operator);
         swapManager.mockSettleBatch(
             batchIdToSettle,
             internalTransfers,
@@ -443,6 +444,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
             address(hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdt)))), // outputToken
             userShares
         );
+        vm.stopPrank();
 
         // === STEP 5: VERIFY RESULTS WITH PROPER ENCRYPTED BALANCE CHECKS ===
         console.log("\nStep 5: Verify batch settlement results with encrypted balance verification");
@@ -741,7 +743,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.stopPrank();
         
         // Simulate AVS settlement with only net swap (no internalized transfers)
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](0);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
 
         // Net swap for Alice's 500 USDC - Alice gets 100% of output
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](1);
@@ -815,7 +817,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.stopPrank();
 
         // Settle the single-intent batch
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](0);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
 
         // Alice gets 100% of swap output
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](1);
@@ -1117,7 +1119,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         freshSwapManager.finalizeBatch(batchId, "");
 
         // Try to settle without setting swapManager in hook
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](0);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
         // Get the output token address
@@ -1181,7 +1183,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         fakeSwapManager.finalizeBatch(batchId, "");
 
         // Try to settle from unauthorized swapManager (fakeSwapManager instead of swapManager)
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](0);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
         // Compute outputToken before expectRevert to avoid consuming it
@@ -1221,7 +1223,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         bytes32 batchId = hook.currentBatchId(poolId);
 
         // DON'T finalize - try to settle directly
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](0);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
         // Compute outputToken before expectRevert to avoid consuming it
@@ -1278,7 +1280,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.stopPrank();
 
         // Settle once
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](0);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
         // Compute outputToken before expectRevert to avoid consuming it
@@ -1368,24 +1370,25 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.stopPrank();
 
         // Perfect match - internal transfers only, NO net swap
-        IHookSettlement.InternalTransfer[] memory internalTransfers = new IHookSettlement.InternalTransfer[](2);
+        InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](2);
 
-        internalTransfers[0] = IHookSettlement.InternalTransfer({
+        // Operator encrypts with operator as sender
+        internalTransfers[0] = InternalTransferInput({
             to: alice,
             encToken: address(encryptedUSDT),
-            encAmount: createInEuint128(200e6, address(swapManager))
+            encAmount: createInEuint128(200e6, operator)
         });
 
-        internalTransfers[1] = IHookSettlement.InternalTransfer({
+        internalTransfers[1] = InternalTransferInput({
             to: bob,
             encToken: address(encryptedUSDC),
-            encAmount: createInEuint128(200e6, address(swapManager))
+            encAmount: createInEuint128(200e6, operator)
         });
 
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
-        // Settle with netAmountIn = 0
-        vm.prank(address(swapManager));
+        // Operator calls mockSettleBatch
+        vm.startPrank(operator);
         swapManager.mockSettleBatch(
             batchId,
             internalTransfers,
@@ -1395,6 +1398,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
             address(encryptedUSDT),
             userShares
         );
+        vm.stopPrank();
 
         // Verify balances
         euint128 aliceUSDTAfter = encryptedUSDT.encBalances(alice);

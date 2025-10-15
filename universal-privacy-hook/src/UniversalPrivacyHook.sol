@@ -459,7 +459,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     struct InternalTransfer {
         address to;             // User receiving tokens
         address encToken;       // IFHERC20 token address (e.g., eUSDC or eUSDT contract)
-        InEuint128 encAmount;   // Fhenix CoFHE: InEuint128 already contains signature
+        euint128 encAmount;     // SwapManager loads InEuint128 to euint128 before passing here
     }
 
     struct UserShare {
@@ -509,14 +509,11 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             // Cast to IFHERC20 interface
             IFHERC20 encToken = IFHERC20(transfer.encToken);
 
-            // Fhenix CoFHE: InEuint128 already contains signature, just convert
-            euint128 verifiedAmount = FHE.asEuint128(transfer.encAmount);
-
             // Grant permissions to encrypted token contract
-            FHE.allow(verifiedAmount, address(encToken));
+            FHE.allow(transfer.encAmount, address(encToken));
 
             // Transfer from Hook to receiver (Hook already holds tokens from matched intents)
-            encToken.transferEncrypted(transfer.to, verifiedAmount);
+            encToken.transferEncrypted(transfer.to, transfer.encAmount);
         }
 
         // Execute net swap on AMM if needed
