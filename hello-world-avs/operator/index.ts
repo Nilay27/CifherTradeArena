@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { initializeCofhe, batchDecryptAmounts, batchEncryptAmounts, CoFheItem } from "./cofheUtils";
+import { initializeCofhe, batchEncrypt, batchDecrypt, FheTypes, CoFheItem, EncryptionInput } from "./cofheUtils";
 import { startUEIProcessor } from './ueiProcessor';
 const fs = require('fs');
 const path = require('path');
@@ -264,15 +264,16 @@ const matchIntents = async (intents: Intent[], encryptedTokenMap: Map<string, st
     let encryptedAmounts: CoFheItem[] = [];
     if (amountsToEncrypt.length > 0) {
         console.log(`Batch encrypting ${amountsToEncrypt.length} transfer amounts...`);
-        // CoFHE.js encrypts values and returns full CoFheItem structs
-        // Each struct contains: {ctHash, securityZone, utype, signature}
-        const batchResult = await batchEncryptAmounts(
-            amountsToEncrypt,
+        // Convert amounts to EncryptionInput format (all as Uint128 for swap amounts)
+        const inputs: EncryptionInput[] = amountsToEncrypt.map(amount => ({
+            value: amount,
+            type: FheTypes.Uint128
+        }));
+        encryptedAmounts = await batchEncrypt(
+            inputs,
             process.env.SWAP_MANAGER_ADDRESS,  // userAddress (SwapManager context)
             process.env.HOOK_ADDRESS           // contractAddress (Hook address)
         );
-        encryptedAmounts = batchResult.encryptedAmounts;
-        // Note: CoFHE.js returns inputProof as '0x' (not used in our contracts)
     }
 
     // Create internal transfers from matched pairs using batch encrypted amounts
@@ -434,12 +435,22 @@ const processBatch = async (batchId: string, batchData: string) => {
         }
 
         // Batch decrypt all amounts in one call
-        console.log(`\nBatch decrypting ${intents.length} intents...`);
-        const decryptedAmounts = await batchDecryptAmounts(encryptedAmountsToDecrypt);
+        // For swaps, encrypted amounts are euint128 handles (utype = 6)
+        console.log(`\nBatch decrypting ${intents.length} swap intents...`);
+
+        // Create CoFheItem structs from euint128 handles
+        const encryptedItems: CoFheItem[] = encryptedAmountsToDecrypt.map(handle => ({
+            ctHash: BigInt(handle),
+            securityZone: 0, // Default security zone
+            utype: FheTypes.Uint128, // Swap amounts are always Uint128
+            signature: '0x' // Not needed for decryption
+        }));
+
+        const decryptedValues = await batchDecrypt(encryptedItems);
 
         // Assign decrypted amounts back to intents
         for (let i = 0; i < intents.length; i++) {
-            intents[i].decryptedAmount = decryptedAmounts[i];
+            intents[i].decryptedAmount = BigInt(decryptedValues[i]);
             console.log(`Intent ${i + 1}: ${intents[i].user}`);
             console.log(`  ${intents[i].tokenIn} -> ${intents[i].tokenOut}`);
             console.log(`  Amount: ${intents[i].decryptedAmount}`);

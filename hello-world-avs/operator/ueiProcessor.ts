@@ -18,7 +18,7 @@
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
-import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/node';
+import { initializeCofhe, batchDecrypt, FheTypes, CoFheItem } from './cofheUtils';
 
 dotenv.config();
 
@@ -29,182 +29,139 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 const SWAP_MANAGER = '0xE1e00b5d08a08Cb141a11a922e48D4c06d66D3bf';
 const BORING_VAULT = '0x4D2a5229C238EEaF5DB0912eb4BE7c39575369f0';
 
-// FHEVM instance for decryption
-let fhevmInstance: any = null;
-
-async function initializeFhevmInstance() {
-    if (!fhevmInstance) {
-        console.log("🔐 Initializing FHEVM for decryption...");
-        fhevmInstance = await createInstance({
-            ...SepoliaConfig,
-            network: PROVIDER_URL
-        });
-        console.log("✅ FHEVM initialized\n");
-    }
-    return fhevmInstance;
-}
-
 /**
- * Decode ctBlob to extract encrypted handles
- * NEW FORMAT: abi.encode(bytes32 decoder, bytes32 target, bytes32 selector, bytes32[] args)
- * NO argTypes array!
+ * Decode event data to extract encrypted InE* structs with type information
+ * Events emit full structs: abi.encode(InEaddress decoder, InEaddress target, InEuint32 selector, InEuint256[] args)
  */
-function decodeCTBlob(ctBlob: string): {
-    encDecoder: string;
-    encTarget: string;
-    encSelector: string;
-    encArgs: string[];
+function decodeEventData(encodedData: string): {
+    encDecoder: CoFheItem;
+    encTarget: CoFheItem;
+    encSelector: CoFheItem;
+    encArgs: CoFheItem[];
 } {
     try {
-        // Decode with NEW format (no argTypes!)
+        // Decode full InE* structs to preserve utype information
         const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
-            ['bytes32', 'bytes32', 'bytes32', 'bytes32[]'],
-            ctBlob
+            [
+                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)', // InEaddress decoder
+                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)', // InEaddress target
+                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)', // InEuint32 selector
+                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)[]' // args (dynamic types!)
+            ],
+            encodedData
         );
 
-        const [encDecoder, encTarget, encSelector, encArgs] = decoded;
+        const [decoderStruct, targetStruct, selectorStruct, argsStructs] = decoded;
 
-        console.log("📦 Decoded ctBlob:");
-        console.log(`  Decoder handle: ${encDecoder}`);
-        console.log(`  Target handle: ${encTarget}`);
-        console.log(`  Selector handle: ${encSelector}`);
-        console.log(`  Args count: ${encArgs.length}`);
+        console.log("📦 Decoded event data with type information:");
+        console.log(`  Decoder: utype=${decoderStruct.utype} (expected ${FheTypes.Uint160})`);
+        console.log(`  Target: utype=${targetStruct.utype} (expected ${FheTypes.Uint160})`);
+        console.log(`  Selector: utype=${selectorStruct.utype} (expected ${FheTypes.Uint32})`);
+        console.log(`  Args: ${argsStructs.length} arguments`);
+        argsStructs.forEach((arg: any, i: number) => {
+            console.log(`    [${i}]: utype=${arg.utype}`);
+        });
 
         return {
-            encDecoder,
-            encTarget,
-            encSelector,
-            encArgs
+            encDecoder: {
+                ctHash: BigInt(decoderStruct.ctHash),
+                securityZone: decoderStruct.securityZone,
+                utype: decoderStruct.utype,
+                signature: decoderStruct.signature
+            },
+            encTarget: {
+                ctHash: BigInt(targetStruct.ctHash),
+                securityZone: targetStruct.securityZone,
+                utype: targetStruct.utype,
+                signature: targetStruct.signature
+            },
+            encSelector: {
+                ctHash: BigInt(selectorStruct.ctHash),
+                securityZone: selectorStruct.securityZone,
+                utype: selectorStruct.utype,
+                signature: selectorStruct.signature
+            },
+            encArgs: argsStructs.map((arg: any) => ({
+                ctHash: BigInt(arg.ctHash),
+                securityZone: arg.securityZone,
+                utype: arg.utype,
+                signature: arg.signature
+            }))
         };
     } catch (error) {
-        console.error("❌ Failed to decode ctBlob:", error);
+        console.error("❌ Failed to decode event data:", error);
         throw error;
     }
 }
 
 /**
- * Batch decrypt all UEI components using FHEVM
+ * Dynamically reconstruct calldata based on argument types (utype)
+ * Converts decrypted values to appropriate Solidity types based on utype
  */
-async function batchDecryptUEI(
-    encDecoder: string,
-    encTarget: string,
-    encSelector: string,
-    encArgs: string[],
-    contractAddress: string,
-    operatorWallet: ethers.Wallet
-): Promise<{
-    decoder: string;
-    target: string;
-    selector: string;
-    args: bigint[];
-}> {
-    try {
-        console.log("\n🔓 Batch decrypting UEI components...");
-
-        const fhevm = await initializeFhevmInstance();
-
-        // Prepare all handles for batch decryption
-        const handleContractPairs = [
-            { handle: encDecoder, contractAddress },
-            { handle: encTarget, contractAddress },
-            { handle: encSelector, contractAddress },
-            ...encArgs.map(handle => ({ handle, contractAddress }))
-        ];
-
-        console.log(`  Prepared ${handleContractPairs.length} handles for decryption`);
-
-        // Generate keypair
-        const { publicKey, privateKey } = fhevm.generateKeypair();
-
-        // Create EIP712 signature
-        const contractAddresses = [contractAddress];
-        const startTimestamp = Math.floor(Date.now() / 1000);
-        const durationDays = 7;
-
-        const eip712 = fhevm.createEIP712(
-            publicKey,
-            contractAddresses,
-            startTimestamp,
-            durationDays
-        );
-
-        const typesWithoutDomain = { ...eip712.types };
-        delete typesWithoutDomain.EIP712Domain;
-
-        // Sign with operator wallet
-        const signature = await operatorWallet.signTypedData(
-            eip712.domain,
-            typesWithoutDomain,
-            eip712.message
-        );
-
-        // Batch decrypt all components
-        const decryptedResults = await fhevm.userDecrypt(
-            handleContractPairs,
-            privateKey,
-            publicKey,
-            signature,
-            contractAddresses,
-            operatorWallet.address,
-            startTimestamp,
-            durationDays
-        );
-
-        const results = Object.values(decryptedResults);
-        console.log(`✅ Successfully decrypted ${results.length} components\n`);
-
-        // Convert to appropriate types
-        const decoder = ethers.getAddress(ethers.toBeHex(BigInt(results[0] as any), 20));
-        const target = ethers.getAddress(ethers.toBeHex(BigInt(results[1] as any), 20));
-        const selectorNum = Number(results[2]);
-        const selector = `0x${selectorNum.toString(16).padStart(8, '0')}`;
-        const args = results.slice(3).map(val => BigInt(val as any));
-
-        console.log("🔍 Decrypted UEI Details:");
-        console.log(`  Decoder: ${decoder}`);
-        console.log(`  Target: ${target}`);
-        console.log(`  Selector: ${selector}`);
-        console.log(`  Args (${args.length}):`, args.map(a => a.toString()));
-
-        return { decoder, target, selector, args };
-    } catch (error) {
-        console.error("❌ Decryption failed:", error);
-        throw error;
-    }
-}
-
-/**
- * Reconstruct calldata for simple transfer
- * For POC: assume transfer(address to, uint256 amount)
- */
-function reconstructTransferCalldata(
+function reconstructCalldata(
     selector: string,
-    args: bigint[]
+    args: any[],
+    argTypes: number[]
 ): string {
-    console.log("\n🔧 Reconstructing calldata...");
+    console.log("\n🔧 Dynamically reconstructing calldata...");
+    console.log(`  Selector: ${selector}`);
+    console.log(`  Args: ${args.length}`);
 
-    // For transfer: args[0] = recipient (address), args[1] = amount (uint256)
-    if (args.length !== 2) {
-        throw new Error(`Expected 2 args for transfer, got ${args.length}`);
+    // Convert decrypted values based on utypes
+    const solidityTypes: string[] = [];
+    const encodedArgs: any[] = [];
+
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        const utype = argTypes[i];
+
+        if (utype === FheTypes.Bool) {
+            solidityTypes.push('bool');
+            encodedArgs.push(Boolean(arg));
+            console.log(`  Arg[${i}]: bool = ${Boolean(arg)}`);
+        } else if (utype === FheTypes.Uint8) {
+            solidityTypes.push('uint8');
+            encodedArgs.push(arg);
+            console.log(`  Arg[${i}]: uint8 = ${arg}`);
+        } else if (utype === FheTypes.Uint16) {
+            solidityTypes.push('uint16');
+            encodedArgs.push(arg);
+            console.log(`  Arg[${i}]: uint16 = ${arg}`);
+        } else if (utype === FheTypes.Uint32) {
+            solidityTypes.push('uint32');
+            encodedArgs.push(arg);
+            console.log(`  Arg[${i}]: uint32 = ${arg}`);
+        } else if (utype === FheTypes.Uint64) {
+            solidityTypes.push('uint64');
+            encodedArgs.push(arg);
+            console.log(`  Arg[${i}]: uint64 = ${arg}`);
+        } else if (utype === FheTypes.Uint128) {
+            solidityTypes.push('uint128');
+            encodedArgs.push(arg);
+            console.log(`  Arg[${i}]: uint128 = ${arg}`);
+        } else if (utype === FheTypes.Uint160) {
+            solidityTypes.push('address');
+            const addr = typeof arg === 'string' ? arg : ethers.getAddress(ethers.toBeHex(BigInt(arg), 20));
+            encodedArgs.push(addr);
+            console.log(`  Arg[${i}]: address = ${addr}`);
+        } else if (utype === FheTypes.Uint256) {
+            solidityTypes.push('uint256');
+            encodedArgs.push(arg);
+            console.log(`  Arg[${i}]: uint256 = ${arg.toString()}`);
+        } else {
+            throw new Error(`Unsupported utype: ${utype}`);
+        }
     }
 
-    const recipient = ethers.getAddress(ethers.toBeHex(args[0], 20));
-    const amount = args[1];
-
-    console.log(`  Function: transfer(address,uint256)`);
-    console.log(`  Recipient: ${recipient}`);
-    console.log(`  Amount: ${amount.toString()}`);
-
-    // Encode arguments
-    const encodedArgs = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['address', 'uint256'],
-        [recipient, amount]
+    // Encode with correct types
+    const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+        solidityTypes,
+        encodedArgs
     );
 
-    // Combine selector + encoded args
-    const calldata = selector + encodedArgs.slice(2);
+    const calldata = selector + encodedParams.slice(2);
+    console.log(`  Calldata: ${calldata.slice(0, 66)}... (${calldata.length} chars)`);
 
-    console.log(`  Calldata: ${calldata}`);
     return calldata;
 }
 
@@ -239,7 +196,7 @@ async function createOperatorSignature(
 async function processUEITrade(
     swapManager: ethers.Contract,
     intentId: string,
-    ctBlob: string,
+    encodedData: string,
     operatorWallet: ethers.Wallet
 ): Promise<void> {
     try {
@@ -247,45 +204,60 @@ async function processUEITrade(
         console.log(`🎯 Processing UEI: ${intentId}`);
         console.log("=".repeat(80));
 
-        // Step 1: Decode ctBlob
-        const decoded = decodeCTBlob(ctBlob);
+        // Step 1: Decode event data to get encrypted structs with type info
+        const decoded = decodeEventData(encodedData);
 
-        // Step 2: Batch decrypt
-        const decrypted = await batchDecryptUEI(
+        // Step 2: Batch decrypt all components with type-aware unsealing
+        console.log("\n🔓 Decrypting UEI components...");
+        const allEncrypted = [
             decoded.encDecoder,
             decoded.encTarget,
             decoded.encSelector,
-            decoded.encArgs,
-            SWAP_MANAGER,
-            operatorWallet
-        );
+            ...decoded.encArgs
+        ];
 
-        // Step 3: Reconstruct calldata
-        const calldata = reconstructTransferCalldata(decrypted.selector, decrypted.args);
+        const decryptedValues = await batchDecrypt(allEncrypted);
+
+        const decoder = decryptedValues[0] as string;
+        const target = decryptedValues[1] as string;
+        const selectorNum = Number(decryptedValues[2]);
+        const selector = `0x${selectorNum.toString(16).padStart(8, '0')}`;
+        const args = decryptedValues.slice(3);
+        const argTypes = decoded.encArgs.map(arg => arg.utype);
+
+        console.log("\n✅ Decrypted UEI:");
+        console.log(`  Decoder: ${decoder}`);
+        console.log(`  Target: ${target}`);
+        console.log(`  Selector: ${selector}`);
+        console.log(`  Args: ${args.length}`);
+
+        // Step 3: Dynamically reconstruct calldata based on arg types
+        const calldata = reconstructCalldata(selector, args, argTypes);
 
         // Step 4: Create operator signature
         console.log("\n✍️  Creating operator signature...");
         const signature = await createOperatorSignature(
             operatorWallet,
             intentId,
-            decrypted.decoder,
-            decrypted.target,
+            decoder,
+            target,
             calldata
         );
 
         // Step 5: Submit to processUEI
         console.log("\n📤 Submitting processUEI transaction...");
         console.log(`  Intent ID: ${intentId}`);
-        console.log(`  Decoder: ${decrypted.decoder}`);
-        console.log(`  Target: ${decrypted.target}`);
+        console.log(`  Decoder: ${decoder}`);
+        console.log(`  Target: ${target}`);
         console.log(`  Calldata length: ${calldata.length} chars`);
 
         const tx = await swapManager.processUEI(
             intentId,
-            decrypted.decoder,
-            decrypted.target,
+            decoder,
+            target,
             calldata,
-            [signature] // Array of signatures (single operator for POC)
+            [signature],
+            { nonce: await operatorWallet.getNonce() }
         );
 
         console.log(`  Transaction hash: ${tx.hash}`);
@@ -374,11 +346,11 @@ async function handleBatchFinalized(
             if (!('args' in event) || !event.args) continue;
 
             const intentId = event.args[0];
-            const ctBlob = event.args[3]; // ctBlob is 4th parameter in TradeSubmitted
+            const encodedData = event.args[3]; // Encoded InE* structs (4th parameter in TradeSubmitted)
 
             console.log(`\n📥 Processing trade ${i + 1}/${events.length}...`);
 
-            await processUEITrade(swapManager, intentId, ctBlob, operatorWallet);
+            await processUEITrade(swapManager, intentId, encodedData, operatorWallet);
 
             // Small delay between processing trades
             if (i < events.length - 1) {
@@ -417,8 +389,8 @@ async function startUEIProcessor() {
         );
         const swapManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, operatorWallet);
 
-        // Initialize FHEVM
-        await initializeFhevmInstance();
+        // Initialize CoFHE.js
+        await initializeCofhe(operatorWallet);
 
         console.log("\n👂 Starting event polling for UEIBatchFinalized...");
         console.log("(Ankr RPC doesn't support eth_newFilter)");

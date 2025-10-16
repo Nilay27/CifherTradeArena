@@ -1,7 +1,6 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { initializeFhevm } from './fhevmUtils';
-import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/node';
+import { initializeCofhe, batchEncrypt, FheTypes, CoFheItem, EncryptionInput } from './cofheUtils';
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -43,45 +42,30 @@ interface SwapIntent {
     description: string;
 }
 
-// Initialize FHEVM instance globally
-let fhevmInstance: any = null;
-
-async function initializeFhevmInstance() {
-    if (!fhevmInstance) {
-        // Create FHEVM instance for Sepolia
-        const networkUrl = process.env.RPC_URL || "https://sepolia.gateway.tenderly.co";
-        console.log("Creating FHEVM instance with network:", networkUrl);
-
-        fhevmInstance = await createInstance({
-            ...SepoliaConfig,
-            network: networkUrl
-        });
-
-        console.log("FHEVM instance created successfully");
-    }
-    return fhevmInstance;
-}
-
-async function encryptAmountForIntent(amount: bigint, contractAddress: string, signerAddress: string): Promise<{ handle: any; inputProof: any }> {
+// Helper function to encrypt amount for intent submission
+// Returns CoFheItem struct for use with InEuint128
+// Swap amounts are always encrypted as Uint128 (utype=6)
+async function encryptAmountForIntent(
+    amount: bigint,
+    contractAddress: string,
+    signerAddress: string
+): Promise<CoFheItem> {
     try {
-        console.log(`Encrypting amount using ZAMA FHEVM: ${amount}`);
+        console.log(`Encrypting amount using CoFHE.js: ${amount}`);
 
-        // Use the initialized FHEVM instance
-        const fhevm = await initializeFhevmInstance();
+        // Encrypt using general batchEncrypt with Uint128 type for swap amounts
+        const inputs: EncryptionInput[] = [{
+            value: amount,
+            type: FheTypes.Uint128  // Swap amounts are always Uint128
+        }];
 
-        const encryptedInput = fhevm
-            .createEncryptedInput(contractAddress, signerAddress)
-            .add128(amount);
+        const encryptedItems = await batchEncrypt(inputs, signerAddress, contractAddress);
+        const encryptedItem = encryptedItems[0];
 
-        const encrypted = await encryptedInput.encrypt();
+        console.log("Encrypted to CoFheItem struct with ctHash:", encryptedItem.ctHash);
+        console.log(`  utype: ${encryptedItem.utype} (expected ${FheTypes.Uint128})`);
 
-        console.log("Encrypted amount handle:", encrypted.handles[0]);
-        console.log("Input proof length:", encrypted.inputProof.length, "bytes");
-
-        return {
-            handle: encrypted.handles[0],
-            inputProof: encrypted.inputProof
-        };
+        return encryptedItem;
     } catch (error) {
         console.error("Error encrypting amount:", error);
         throw error;
@@ -100,8 +84,8 @@ async function submitEncryptedIntent(
     console.log(`Amount: ${intent.amount.toString()}`);
     
     try {
-        // Encrypt the amount using ZAMA FHEVM with proper proof
-        const encrypted = await encryptAmountForIntent(
+        // Encrypt the amount using CoFHE.js
+        const encryptedItem = await encryptAmountForIntent(
             intent.amount,
             UNIVERSAL_PRIVACY_HOOK,
             wallet.address
@@ -128,8 +112,8 @@ async function submitEncryptedIntent(
             console.log("  poolKey:", JSON.stringify(poolKey, null, 2));
             console.log("  tokenIn:", intent.tokenIn);
             console.log("  tokenOut:", intent.tokenOut);
-            console.log("  encryptedHandle:", encrypted.handle);
-            console.log("  inputProof length:", encrypted.inputProof.length);
+            console.log("  encryptedItem ctHash:", encryptedItem.ctHash);
+            console.log("  encryptedItem securityZone:", encryptedItem.securityZone);
             console.log("  deadline:", deadline);
 
             // Try to decode the revert reason if gas estimation fails
@@ -137,8 +121,7 @@ async function submitEncryptedIntent(
                 poolKey,
                 intent.tokenIn,
                 intent.tokenOut,
-                encrypted.handle,
-                encrypted.inputProof,
+                encryptedItem, // Pass full CoFheItem struct as InEuint128
                 deadline
             );
             console.log(`Estimated gas: ${estimatedGas.toString()}`);
@@ -163,14 +146,13 @@ async function submitEncryptedIntent(
             // Continue anyway with manual gas limit
         }
 
-        // Submit the encrypted intent to UniversalPrivacyHook with handle and proof
+        // Submit the encrypted intent to UniversalPrivacyHook with CoFheItem struct
         console.log("Attempting to send transaction...");
         const tx = await universalHook.submitIntent(
             poolKey,
             intent.tokenIn,
             intent.tokenOut,
-            encrypted.handle,
-            encrypted.inputProof,
+            encryptedItem, // Pass full CoFheItem struct as InEuint128
             deadline,
             {
                 nonce: nonce,
@@ -292,15 +274,13 @@ async function main() {
     console.log("🚀 Starting Helper Intent Auto-Submission Service");
     console.log("===================================================\n");
 
-    // Initialize ZAMA FHEVM for real FHE encryption
-    console.log("Initializing ZAMA FHEVM...");
+    // Initialize CoFHE.js for FHE encryption
+    console.log("Initializing CoFHE.js...");
 
-    // Initialize both the operator's FHEVM and the instance for encryption
-    await initializeFhevm(wallet);
-    await initializeFhevmInstance();
+    await initializeCofhe(wallet);
 
-    console.log("✅ ZAMA FHEVM initialized successfully");
-    console.log("✅ Real FHE encryption enabled\n");
+    console.log("✅ CoFHE.js initialized successfully");
+    console.log("✅ FHE encryption enabled\n");
 
     // Initialize UniversalPrivacyHook contract
     const universalHook = new ethers.Contract(UNIVERSAL_PRIVACY_HOOK, UniversalHookABI, wallet);

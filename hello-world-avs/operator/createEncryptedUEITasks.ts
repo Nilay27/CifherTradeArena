@@ -4,7 +4,9 @@
  * This script submits a simple USDC transfer UEI to the SwapManager
  * Flow:
  * 1. Encrypt: decoder (address), target (USDC), selector (transfer), args [recipient, amount]
- * 2. Submit to SwapManager.submitEncryptedUEI(ctBlob, inputProof, deadline)
+ *    - Each component encrypted with correct type (Address, Address, Uint32, Uint256[])
+ * 2. Submit to SwapManager.submitEncryptedUEI(decoder, target, selector, args, deadline)
+ *    - Each parameter is a CoFheItem struct with correct utype
  * 3. Wait for batch finalization (handled by keeper or manual call)
  * 4. Operator will decrypt and process (handled by ueiProcessor.ts)
  */
@@ -12,7 +14,7 @@
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
-import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/node';
+import { initializeCofhe, batchEncrypt, EncryptionInput, FheTypes, CoFheItem } from './cofheUtils';
 
 dotenv.config();
 
@@ -28,24 +30,14 @@ const USDC_SEPOLIA = '0x59dd1A3Bd1256503cdc023bfC9f10e107d64C3C1'; // Sepolia US
 // Using a valid address format - decoder validation will be added with merkle tree in BoringVault
 const MOCK_ERC20_DECODER = '0x0000000000000000000000000000000000000001';
 
-// Initialize FHEVM instance
-let fhevmInstance: any = null;
-
-async function initializeFhevmInstance() {
-    if (!fhevmInstance) {
-        console.log("Creating FHEVM instance for encryption...");
-        fhevmInstance = await createInstance({
-            ...SepoliaConfig,
-            network: PROVIDER_URL
-        });
-        console.log("✅ FHEVM instance created");
-    }
-    return fhevmInstance;
-}
-
 /**
- * Batch encrypt all UEI components
- * NEW FORMAT: No argTypes! All args are euint256
+ * Batch encrypt all UEI components using CoFHE.js with type-aware encryption
+ * Each component is encrypted with the correct FHE type:
+ * - decoder: FheType.Address (InEaddress)
+ * - target: FheType.Address (InEaddress)
+ * - selector: FheType.Uint32 (InEuint32)
+ * - args: FheType.Uint256 (InEuint256[])
+ * Returns CoFheItem structs with correct utype for each component
  */
 async function batchEncryptUEIComponents(
     decoder: string,
@@ -55,51 +47,46 @@ async function batchEncryptUEIComponents(
     contractAddress: string,
     signerAddress: string
 ): Promise<{
-    encryptedDecoder: any;
-    encryptedTarget: any;
-    encryptedSelector: any;
-    encryptedArgs: any[];
-    inputProof: string;
+    encryptedDecoder: CoFheItem;
+    encryptedTarget: CoFheItem;
+    encryptedSelector: CoFheItem;
+    encryptedArgs: CoFheItem[];
 }> {
     try {
-        console.log("🔐 Batch encrypting UEI components...");
-        console.log(`  Decoder: ${decoder}`);
-        console.log(`  Target: ${target}`);
-        console.log(`  Selector: ${selector}`);
-        console.log(`  Args (${args.length}):`, args);
+        console.log("🔐 Batch encrypting UEI components using type-aware CoFHE.js...");
+        console.log(`  Decoder: ${decoder} (type: Address)`);
+        console.log(`  Target: ${target} (type: Address)`);
+        console.log(`  Selector: ${selector} (type: Uint32)`);
+        console.log(`  Args (${args.length}): (type: Uint256 each)`);
+        args.forEach((arg, i) => console.log(`    [${i}]: ${arg.toString()}`));
 
-        const fhevm = await initializeFhevmInstance();
-        const encryptedInput = fhevm.createEncryptedInput(contractAddress, signerAddress);
+        // Prepare typed inputs for batch encryption
+        const inputs: EncryptionInput[] = [
+            { value: decoder, type: FheTypes.Uint160 },     // decoder as Address (Uint160)
+            { value: target, type: FheTypes.Uint160 },      // target as Address (Uint160)
+            { value: selector, type: FheTypes.Uint32 },     // selector as Uint32
+            ...args.map(arg => ({
+                value: typeof arg === 'string' ? BigInt(arg) : arg,
+                type: FheTypes.Uint256                       // each arg as Uint256
+            }))
+        ];
 
-        // Encrypt decoder as eaddress
-        encryptedInput.addAddress(ethers.getAddress(decoder));
+        // Batch encrypt all values with correct types
+        const encryptedItems = await batchEncrypt(inputs, signerAddress, contractAddress);
 
-        // Encrypt target as eaddress
-        encryptedInput.addAddress(ethers.getAddress(target));
-
-        // Encrypt selector as euint32
-        const selectorBigInt = BigInt(selector);
-        encryptedInput.add32(Number(selectorBigInt & BigInt(0xFFFFFFFF)));
-
-        // Encrypt all args as euint256 (NO argTypes!)
-        for (const arg of args) {
-            const argBigInt = typeof arg === 'string' ? BigInt(arg) : arg;
-            encryptedInput.add256(argBigInt);
-        }
-
-        // Encrypt all in one call
-        const encrypted = await encryptedInput.encrypt();
-
-        console.log("✅ Encrypted components:");
-        console.log(`  Total handles: ${encrypted.handles.length}`);
-        console.log(`  Input proof length: ${encrypted.inputProof.length} bytes`);
+        console.log("✅ Encrypted components with correct types:");
+        console.log(`  Decoder: utype=${encryptedItems[0].utype} (expected ${FheTypes.Uint160})`);
+        console.log(`  Target: utype=${encryptedItems[1].utype} (expected ${FheTypes.Uint160})`);
+        console.log(`  Selector: utype=${encryptedItems[2].utype} (expected ${FheTypes.Uint32})`);
+        encryptedItems.slice(3).forEach((item, i) => {
+            console.log(`  Arg[${i}]: utype=${item.utype} (expected ${FheTypes.Uint256})`);
+        });
 
         return {
-            encryptedDecoder: encrypted.handles[0],
-            encryptedTarget: encrypted.handles[1],
-            encryptedSelector: encrypted.handles[2],
-            encryptedArgs: encrypted.handles.slice(3),
-            inputProof: ethers.hexlify(encrypted.inputProof)
+            encryptedDecoder: encryptedItems[0],
+            encryptedTarget: encryptedItems[1],
+            encryptedSelector: encryptedItems[2],
+            encryptedArgs: encryptedItems.slice(3)
         };
     } catch (error) {
         console.error("❌ Encryption failed:", error);
@@ -142,8 +129,8 @@ async function createUSDCTransferUEI() {
         console.log(`  Amount: ${ethers.formatUnits(amount, 6)} USDC`);
         console.log(`  Selector: ${transferSelector}`);
 
-        // Initialize FHEVM
-        await initializeFhevmInstance();
+        // Initialize CoFHE.js
+        await initializeCofhe(wallet);
 
         // Batch encrypt: decoder, target, selector, args
         console.log("\n🔐 Encrypting UEI components...");
@@ -159,21 +146,42 @@ async function createUSDCTransferUEI() {
             wallet.address       // signer address
         );
 
-        // Create ctBlob with NEW FORMAT: NO argTypes!
-        // Format: abi.encode(bytes32 encDecoder, bytes32 encTarget, bytes32 encSelector, bytes32[] encArgs)
-        const ctBlob = ethers.AbiCoder.defaultAbiCoder().encode(
-            ['bytes32', 'bytes32', 'bytes32', 'bytes32[]'],
-            [
-                ethers.hexlify(encrypted.encryptedDecoder),
-                ethers.hexlify(encrypted.encryptedTarget),
-                ethers.hexlify(encrypted.encryptedSelector),
-                encrypted.encryptedArgs.map(handle => ethers.hexlify(handle))
-            ]
-        );
+        // Prepare CoFheItem structs for submission
+        // Each component is a full struct with {ctHash, securityZone, utype, signature}
+        // Contract expects: submitEncryptedUEI(InEaddress decoder, InEaddress target, InEuint32 selector, InEuint256[] args, deadline)
+        const decoderStruct = {
+            ctHash: ethers.toBeHex(encrypted.encryptedDecoder.ctHash, 32),
+            securityZone: encrypted.encryptedDecoder.securityZone,
+            utype: encrypted.encryptedDecoder.utype,
+            signature: encrypted.encryptedDecoder.signature
+        };
 
-        console.log("\n📦 Created ctBlob:");
-        console.log(`  Size: ${ctBlob.length} bytes`);
-        console.log(`  Input proof: ${encrypted.inputProof.length} chars`);
+        const targetStruct = {
+            ctHash: ethers.toBeHex(encrypted.encryptedTarget.ctHash, 32),
+            securityZone: encrypted.encryptedTarget.securityZone,
+            utype: encrypted.encryptedTarget.utype,
+            signature: encrypted.encryptedTarget.signature
+        };
+
+        const selectorStruct = {
+            ctHash: ethers.toBeHex(encrypted.encryptedSelector.ctHash, 32),
+            securityZone: encrypted.encryptedSelector.securityZone,
+            utype: encrypted.encryptedSelector.utype,
+            signature: encrypted.encryptedSelector.signature
+        };
+
+        const argsStructs = encrypted.encryptedArgs.map(item => ({
+            ctHash: ethers.toBeHex(item.ctHash, 32),
+            securityZone: item.securityZone,
+            utype: item.utype,
+            signature: item.signature
+        }));
+
+        console.log("\n📦 Prepared CoFheItem structs:");
+        console.log(`  Decoder: utype=${decoderStruct.utype} (Address)`);
+        console.log(`  Target: utype=${targetStruct.utype} (Address)`);
+        console.log(`  Selector: utype=${selectorStruct.utype} (Uint32)`);
+        console.log(`  Args: ${argsStructs.length} items, each utype=${argsStructs[0]?.utype || 'N/A'} (Uint256)`);
 
         // Submit to SwapManager
         const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
@@ -181,10 +189,15 @@ async function createUSDCTransferUEI() {
         console.log("\n📤 Submitting UEI to SwapManager...");
         console.log(`  Deadline: ${new Date(deadline * 1000).toLocaleString()}`);
 
+        // Submit to SwapManager with individual CoFheItem structs
+        // Each encrypted component is passed separately with its correct type
         const tx = await swapManager.submitEncryptedUEI(
-            ctBlob,
-            encrypted.inputProof,
-            deadline
+            decoderStruct,   // InEaddress
+            targetStruct,    // InEaddress
+            selectorStruct,  // InEuint32
+            argsStructs,     // InEuint256[]
+            deadline,
+            { nonce: await wallet.getNonce() }  // Add nonce as per project instructions
         );
 
         console.log(`  Transaction hash: ${tx.hash}`);
