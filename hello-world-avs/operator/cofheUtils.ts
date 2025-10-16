@@ -10,6 +10,15 @@ import { getNetworkConfig } from './utils/cofheConfig';
 // CoFHE.js for FHE operations
 const { cofhejs, Encryptable, FheTypes } = require('cofhejs/node');
 
+// Type definitions for CoFHE.js encrypted items
+// Matches the InEuint128 struct in Solidity contracts
+export interface CoFheItem {
+    ctHash: bigint;         // The encrypted ciphertext hash
+    securityZone: number;   // Security zone identifier
+    utype: number;          // FHE type (e.g., FheTypes.Uint128)
+    signature: string;      // Signature for verification
+}
+
 let operatorSigner: ethers.Wallet;
 let isInitialized = false;
 
@@ -234,7 +243,7 @@ export const batchDecryptAmounts = async (encryptedAmounts: string[]): Promise<b
 
 /**
  * Encrypt a single amount
- * Returns encrypted handle (ctHash) encoded as bytes
+ * Returns full CoFheItem struct for use with InEuint128
  *
  * Note: CoFHE.js returns individual encrypted items (not handles + proof like ZAMA)
  */
@@ -242,7 +251,7 @@ export const encryptAmount = async (
     amount: bigint,
     userAddress?: string,
     contractAddress?: string
-): Promise<bigint> => {
+): Promise<CoFheItem> => {
     if (!isInitialized) {
         throw new Error("CoFHE.js not initialized. Call initializeCofhe() first.");
     }
@@ -258,13 +267,15 @@ export const encryptAmount = async (
         }
 
         const encryptedItem = encResult.data[0];
-        console.log(`✓ Encrypted to FHE handle:`, encryptedItem);
+        console.log(`✓ Encrypted to FHE struct with ctHash: ${encryptedItem.ctHash}`);
 
-        // Extract ctHash from the encrypted item
-        const ctHash = BigInt(encryptedItem.ctHash);
-        console.log(`✓ Using ctHash: ${ctHash}`);
-
-        return ctHash;
+        // Return full CoFheItem struct
+        return {
+            ctHash: BigInt(encryptedItem.ctHash),
+            securityZone: encryptedItem.securityZone,
+            utype: encryptedItem.utype,
+            signature: encryptedItem.signature
+        };
     } catch (error) {
         console.error("Error encrypting amount:", error);
         throw error;
@@ -273,17 +284,18 @@ export const encryptAmount = async (
 
 /**
  * Batch encrypt multiple amounts
- * Returns array of ctHashes and empty proof for compatibility with ZAMA interface
+ * Returns array of full encrypted structs (CoFheItem) for use with InEuint128
  *
  * Note: Unlike ZAMA which returns handles + single shared proof,
  * CoFHE.js returns individual encrypted items with embedded signatures
+ * Each item contains: {ctHash, securityZone, utype, signature}
  */
 export const batchEncryptAmounts = async (
     amounts: bigint[],
     userAddress?: string,
     contractAddress?: string
 ): Promise<{
-    encryptedAmounts: bigint[];
+    encryptedAmounts: CoFheItem[]; // Array of CoFheItem structs
     inputProof: string;
 }> => {
     if (!isInitialized) {
@@ -303,20 +315,25 @@ export const batchEncryptAmounts = async (
             throw new Error(`Batch encryption failed: ${encResult.error?.message || 'Unknown error'}`);
         }
 
-        // Extract ctHashes from encrypted items
-        const encryptedAmounts = encResult.data.map((item: any, index: number) => {
-            const ctHash = BigInt(item.ctHash);
-            console.log(`  [${index}] Encrypted: ${amounts[index]} -> ctHash: ${ctHash}`);
-            return ctHash;
+        // Return full encrypted items (CoFheItem structs)
+        // Each item has: {ctHash, securityZone, utype, signature}
+        const encryptedAmounts: CoFheItem[] = encResult.data.map((item: any, index: number) => {
+            console.log(`  [${index}] Encrypted: ${amounts[index]} -> struct with ctHash: ${item.ctHash}`);
+            return {
+                ctHash: BigInt(item.ctHash),
+                securityZone: item.securityZone,
+                utype: item.utype,
+                signature: item.signature
+            };
         });
 
         console.log(`✓ Successfully batch encrypted ${encryptedAmounts.length} amounts`);
 
-        // Return empty proof for compatibility with ZAMA interface
-        // CoFHE.js doesn't use a single shared proof like ZAMA
+        // Return empty proof - CoFHE.js doesn't use a single shared proof like ZAMA
+        // Each encrypted item contains its own signature
         return {
             encryptedAmounts,
-            inputProof: '0x', // Empty proof - not used in CoFHE.js
+            inputProof: '0x', // Not used with CoFHE.js
         };
     } catch (error) {
         console.error("Error batch encrypting amounts:", error);

@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { initializeFhevm, batchDecryptAmounts, batchEncryptAmounts } from "./fhevmUtils";
+import { initializeCofhe, batchDecryptAmounts, batchEncryptAmounts, CoFheItem } from "./cofheUtils";
 import { startUEIProcessor } from './ueiProcessor';
 const fs = require('fs');
 const path = require('path');
@@ -163,7 +163,7 @@ interface Intent {
 interface InternalTransfer {
     to: string;
     encToken: string;  // The encrypted token contract address
-    encAmount: bigint;  // The encrypted amount (euint128 as bigint/ctHash)
+    encAmount: CoFheItem;  // The encrypted amount (CoFheItem struct from CoFHE.js)
 }
 
 // Structure for user shares in AMM output
@@ -182,7 +182,6 @@ interface SettlementData {
     tokenOut: string;
     outputToken: string;
     userShares: UserShare[];
-    inputProof: string;
 }
 
 // FIFO matching algorithm - keep the original working logic
@@ -261,20 +260,19 @@ const matchIntents = async (intents: Intent[], encryptedTokenMap: Map<string, st
         amountsToEncrypt.push(match.amount); // For tokenA transfer
     }
 
-    // Batch encrypt all matched amounts in one call
-    let encryptedAmounts: bigint[] = [];
-    let inputProof: string = "0x";
+    // Batch encrypt all matched amounts in one call using CoFHE.js
+    let encryptedAmounts: CoFheItem[] = [];
     if (amountsToEncrypt.length > 0) {
         console.log(`Batch encrypting ${amountsToEncrypt.length} transfer amounts...`);
-        // Hook calls FHE.fromExternal (contractAddress)
-        // SwapManager is msg.sender to Hook (userAddress)
+        // CoFHE.js encrypts values and returns full CoFheItem structs
+        // Each struct contains: {ctHash, securityZone, utype, signature}
         const batchResult = await batchEncryptAmounts(
             amountsToEncrypt,
-            process.env.SWAP_MANAGER_ADDRESS,  // userAddress (msg.sender to Hook)
-            process.env.HOOK_ADDRESS           // contractAddress (calls fromExternal)
+            process.env.SWAP_MANAGER_ADDRESS,  // userAddress (SwapManager context)
+            process.env.HOOK_ADDRESS           // contractAddress (Hook address)
         );
         encryptedAmounts = batchResult.encryptedAmounts;
-        inputProof = batchResult.inputProof;
+        // Note: CoFHE.js returns inputProof as '0x' (not used in our contracts)
     }
 
     // Create internal transfers from matched pairs using batch encrypted amounts
@@ -366,8 +364,7 @@ const matchIntents = async (intents: Intent[], encryptedTokenMap: Map<string, st
         tokenIn,
         tokenOut,
         outputToken: outputEncryptedToken, // Use encrypted token contract address
-        userShares,
-        inputProof
+        userShares
     }
 };
 
@@ -454,11 +451,18 @@ const processBatch = async (batchId: string, batchData: string) => {
         // Submit settlement to SwapManager (NOT hook directly!)
         console.log("\n=== Submitting Settlement to SwapManager ===");
 
-        // Convert internalTransfers encAmount from bigint to bytes32 hex for contract call
+        // Convert internalTransfers encAmount to InEuint128 struct format for contract
+        // CoFHE.js returns: {ctHash, securityZone, utype, signature}
+        // Contract expects: InEuint128 {ctHash: uint256, securityZone: uint8, utype: uint8, signature: bytes}
         const internalTransfersForContract = settlementData.internalTransfers.map(t => ({
             to: t.to,
             encToken: t.encToken,
-            encAmount: ethers.toBeHex(t.encAmount, 32) // Convert bigint to bytes32
+            encAmount: {
+                ctHash: t.encAmount.ctHash,
+                securityZone: t.encAmount.securityZone,
+                utype: t.encAmount.utype,
+                signature: t.encAmount.signature
+            }
         }));
 
         // Create message hash using solidityPackedKeccak256 to match contract's abi.encodePacked
@@ -499,10 +503,10 @@ const processBatch = async (batchId: string, batchData: string) => {
         console.log("Token Out:", settlementData.tokenOut);
         console.log("Output Token:", settlementData.outputToken);
         console.log("User Shares:", settlementData.userShares.length);
-        console.log("Input Proof length:", settlementData.inputProof.length);
         console.log("Signatures:", [signature].length);
 
         // Submit to SwapManager.submitBatchSettlement()
+        // Note: No inputProof needed with CoFHE.js - encrypted values are self-contained
         const tx = await SwapManager.submitBatchSettlement(
             decodedBatchId,
             internalTransfersForContract,
@@ -511,7 +515,6 @@ const processBatch = async (batchId: string, batchData: string) => {
             settlementData.tokenOut,
             settlementData.outputToken,
             settlementData.userShares,
-            settlementData.inputProof,
             [signature], // Array of operator signatures
             {
                 gasLimit: 5000000, // Manual gas limit to avoid estimation issues
@@ -606,8 +609,8 @@ const monitorBatches = async () => {
 };
 
 const main = async () => {
-    // Initialize ZAMA FHEVM for FHE operations
-    await initializeFhevm(wallet);
+    // Initialize CoFHE.js for FHE operations
+    await initializeCofhe(wallet);
 
     await registerOperator();
 
