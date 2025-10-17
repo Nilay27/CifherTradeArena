@@ -3,7 +3,7 @@ src = "src"
 out = "out"
 libs = ["node_modules"]
 ffi = false
-fs_permissions = [{ access = "read-write", path = ".forge-snapshots/"}]
+fs_permissions = [{ access = "read-write", path = ".forge-snapshots/"}, { access = "read-write", path = "./deployments/"}]
 solc_version = "0.8.26"
 evm_version = "cancun"
 auto_detect_remappings = false
@@ -12,5 +12,12 @@ optimizer = true
 optimizer_runs = 200
 # Exclude test and script files from coverage
 no_match_coverage = "^(test/|script/|src/test/)"
+
+# RPC endpoints using Ankr
+[rpc_endpoints]
+eth_sepolia = "${ANKR_RPC_URL}/eth_sepolia/${ANKR_API_KEY}"
+base_sepolia = "${ANKR_RPC_URL}/base_sepolia/${ANKR_API_KEY}"
+arb_sepolia = "${ANKR_RPC_URL}/arbitrum_sepolia/${ANKR_API_KEY}"
+
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config

@@ -19,19 +19,21 @@ import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import { initializeCofhe, batchDecrypt, FheTypes, CoFheItem } from './cofheUtils';
+import { loadDeploymentConfig, getNetworkName } from './config/deploymentConfig';
 
 dotenv.config();
 
 const PROVIDER_URL = process.env.RPC_URL || 'https://sepolia.infura.io/v3/YOUR_KEY';
 const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 
-// Deployed contract addresses
-const SWAP_MANAGER = '0xE1e00b5d08a08Cb141a11a922e48D4c06d66D3bf';
-const BORING_VAULT = '0x4D2a5229C238EEaF5DB0912eb4BE7c39575369f0';
+// Dynamic addresses loaded from deployment files
+let SWAP_MANAGER: string;
+let BORING_VAULT: string;
 
 /**
- * Decode event data to extract encrypted InE* structs with type information
- * Events emit full structs: abi.encode(InEaddress decoder, InEaddress target, InEuint32 selector, InEuint256[] args)
+ * Decode event data to extract internal FHE handles with type information
+ * Events emit HandleWithType structs: abi.encode(HandleWithType decoder, HandleWithType target, HandleWithType selector, HandleWithType[] args)
+ * HandleWithType = {uint256 handle, uint8 utype}
  */
 function decodeEventData(encodedData: string): {
     encDecoder: CoFheItem;
@@ -40,52 +42,52 @@ function decodeEventData(encodedData: string): {
     encArgs: CoFheItem[];
 } {
     try {
-        // Decode full InE* structs to preserve utype information
+        // Decode HandleWithType structs (internal handles + utypes)
         const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
             [
-                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)', // InEaddress decoder
-                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)', // InEaddress target
-                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)', // InEuint32 selector
-                'tuple(bytes32 ctHash, uint8 securityZone, uint8 utype, bytes signature)[]' // args (dynamic types!)
+                'tuple(uint256 handle, uint8 utype)', // HandleWithType decoder
+                'tuple(uint256 handle, uint8 utype)', // HandleWithType target
+                'tuple(uint256 handle, uint8 utype)', // HandleWithType selector
+                'tuple(uint256 handle, uint8 utype)[]' // HandleWithType[] args
             ],
             encodedData
         );
 
         const [decoderStruct, targetStruct, selectorStruct, argsStructs] = decoded;
 
-        console.log("📦 Decoded event data with type information:");
-        console.log(`  Decoder: utype=${decoderStruct.utype} (expected ${FheTypes.Uint160})`);
-        console.log(`  Target: utype=${targetStruct.utype} (expected ${FheTypes.Uint160})`);
-        console.log(`  Selector: utype=${selectorStruct.utype} (expected ${FheTypes.Uint32})`);
+        console.log("📦 Decoded event data with internal handles and type information:");
+        console.log(`  Decoder: handle=${decoderStruct.handle}, utype=${decoderStruct.utype}`);
+        console.log(`  Target: handle=${targetStruct.handle}, utype=${targetStruct.utype}`);
+        console.log(`  Selector: handle=${selectorStruct.handle}, utype=${selectorStruct.utype}`);
         console.log(`  Args: ${argsStructs.length} arguments`);
         argsStructs.forEach((arg: any, i: number) => {
-            console.log(`    [${i}]: utype=${arg.utype}`);
+            console.log(`    [${i}]: handle=${arg.handle}, utype=${arg.utype}`);
         });
 
         return {
             encDecoder: {
-                ctHash: BigInt(decoderStruct.ctHash),
-                securityZone: decoderStruct.securityZone,
-                utype: decoderStruct.utype,
-                signature: decoderStruct.signature
+                ctHash: BigInt(decoderStruct.handle),  // Internal handle, not original ctHash
+                securityZone: 0,                        // Not needed for decryption
+                utype: decoderStruct.utype,             // Preserved from original input
+                signature: '0x'                         // Not needed for decryption
             },
             encTarget: {
-                ctHash: BigInt(targetStruct.ctHash),
-                securityZone: targetStruct.securityZone,
+                ctHash: BigInt(targetStruct.handle),
+                securityZone: 0,
                 utype: targetStruct.utype,
-                signature: targetStruct.signature
+                signature: '0x'
             },
             encSelector: {
-                ctHash: BigInt(selectorStruct.ctHash),
-                securityZone: selectorStruct.securityZone,
+                ctHash: BigInt(selectorStruct.handle),
+                securityZone: 0,
                 utype: selectorStruct.utype,
-                signature: selectorStruct.signature
+                signature: '0x'
             },
             encArgs: argsStructs.map((arg: any) => ({
-                ctHash: BigInt(arg.ctHash),
-                securityZone: arg.securityZone,
+                ctHash: BigInt(arg.handle),
+                securityZone: 0,
                 utype: arg.utype,
-                signature: arg.signature
+                signature: '0x'
             }))
         };
     } catch (error) {
@@ -223,7 +225,8 @@ async function processUEITrade(
         const selectorNum = Number(decryptedValues[2]);
         const selector = `0x${selectorNum.toString(16).padStart(8, '0')}`;
         const args = decryptedValues.slice(3);
-        const argTypes = decoded.encArgs.map(arg => arg.utype);
+        // Convert utypes from BigInt to Number for comparison with FheTypes enum
+        const argTypes = decoded.encArgs.map(arg => typeof arg.utype === 'bigint' ? Number(arg.utype) : arg.utype);
 
         console.log("\n✅ Decrypted UEI:");
         console.log(`  Decoder: ${decoder}`);
@@ -379,6 +382,15 @@ async function startUEIProcessor() {
         const provider = new ethers.JsonRpcProvider(PROVIDER_URL);
         const operatorWallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
+        // Load deployment config based on chain ID
+        const network = await provider.getNetwork();
+        const chainId = Number(network.chainId);
+        const config = loadDeploymentConfig(chainId);
+
+        SWAP_MANAGER = config.swapManager;
+        BORING_VAULT = config.boringVault || '0x0000000000000000000000000000000000000000';
+
+        console.log(`Network: ${config.network} (Chain ID: ${chainId})`);
         console.log("👤 Operator wallet:", operatorWallet.address);
         console.log("🏦 SwapManager:", SWAP_MANAGER);
         console.log("💰 BoringVault:", BORING_VAULT);

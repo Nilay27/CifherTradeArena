@@ -12,34 +12,54 @@ if (!Object.keys(process.env).length) {
 }
 
 // Setup env variables
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+const provider = new ethers.JsonRpcProvider(process.env.RPC_URL, undefined, { staticNetwork: true });
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
-/// TODO: Hack
-let chainId = 11155111; // Sepolia
 
-const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/swap-manager/${chainId}.json`), 'utf8'));
-// Load core deployment data
-const coreDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/core/${chainId}.json`), 'utf8'));
+console.log(`Using RPC: ${process.env.RPC_URL}`);
 
+// Global variables that will be initialized in main()
+let chainId: number;
+let delegationManagerAddress: string;
+let avsDirectoryAddress: string;
+let SwapManagerAddress: string;
+let ecdsaStakeRegistryAddress: string;
+let delegationManager: ethers.Contract;
+let SwapManager: ethers.Contract;
+let ecdsaRegistryContract: ethers.Contract;
+let avsDirectory: ethers.Contract;
 
-const delegationManagerAddress = coreDeploymentData.addresses.delegationManager; // todo: reminder to fix the naming of this contract in the deployment file, change to delegationManager
-const avsDirectoryAddress = coreDeploymentData.addresses.avsDirectory;
-const SwapManagerAddress = avsDeploymentData.addresses.SwapManager;
-const ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
+// Get chain ID from provider
+async function getChainId(): Promise<number> {
+    const network = await provider.getNetwork();
+    return Number(network.chainId);
+}
 
+// Initialize all contracts and addresses
+async function initializeContracts() {
+    chainId = await getChainId();
+    console.log(`Chain ID: ${chainId}`);
 
+    const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/swap-manager/${chainId}.json`), 'utf8'));
+    // Load core deployment data
+    const coreDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/core/${chainId}.json`), 'utf8'));
 
-// Load ABIs
-const delegationManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IDelegationManager.json'), 'utf8'));
-const ecdsaRegistryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/ECDSAStakeRegistry.json'), 'utf8'));
-const SwapManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8'));
-const avsDirectoryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IAVSDirectory.json'), 'utf8'));
+    delegationManagerAddress = coreDeploymentData.addresses.delegationManager;
+    avsDirectoryAddress = coreDeploymentData.addresses.avsDirectory;
+    SwapManagerAddress = avsDeploymentData.addresses.SwapManager;
+    ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
 
-// Initialize contract objects from ABIs
-const delegationManager = new ethers.Contract(delegationManagerAddress, delegationManagerABI, wallet);
-const SwapManager = new ethers.Contract(SwapManagerAddress, SwapManagerABI, wallet);
-const ecdsaRegistryContract = new ethers.Contract(ecdsaStakeRegistryAddress, ecdsaRegistryABI, wallet);
-const avsDirectory = new ethers.Contract(avsDirectoryAddress, avsDirectoryABI, wallet);
+    // Load ABIs
+    const delegationManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IDelegationManager.json'), 'utf8'));
+    const ecdsaRegistryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/ECDSAStakeRegistry.json'), 'utf8'));
+    const SwapManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8'));
+    const avsDirectoryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IAVSDirectory.json'), 'utf8'));
+
+    // Initialize contract objects from ABIs
+    delegationManager = new ethers.Contract(delegationManagerAddress, delegationManagerABI, wallet);
+    SwapManager = new ethers.Contract(SwapManagerAddress, SwapManagerABI, wallet);
+    ecdsaRegistryContract = new ethers.Contract(ecdsaStakeRegistryAddress, ecdsaRegistryABI, wallet);
+    avsDirectory = new ethers.Contract(avsDirectoryAddress, avsDirectoryABI, wallet);
+}
 
 
 
@@ -518,6 +538,7 @@ const processBatch = async (batchId: string, batchData: string) => {
 
         // Submit to SwapManager.submitBatchSettlement()
         // Note: No inputProof needed with CoFHE.js - encrypted values are self-contained
+        const nonce = await wallet.getNonce();
         const tx = await SwapManager.submitBatchSettlement(
             decodedBatchId,
             internalTransfersForContract,
@@ -528,6 +549,7 @@ const processBatch = async (batchId: string, batchData: string) => {
             settlementData.userShares,
             [signature], // Array of operator signatures
             {
+                nonce,
                 gasLimit: 5000000, // Manual gas limit to avoid estimation issues
                 gasPrice: gasPrice // 120% of current gas price for faster inclusion
             }
@@ -620,6 +642,9 @@ const monitorBatches = async () => {
 };
 
 const main = async () => {
+    // Initialize contracts and load deployment configuration
+    await initializeContracts();
+
     // Initialize CoFHE.js for FHE operations
     await initializeCofhe(wallet);
 

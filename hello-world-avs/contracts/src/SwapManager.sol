@@ -9,8 +9,9 @@ import {ECDSAUpgradeable} from
     "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
 import {IERC1271Upgradeable} from
     "@openzeppelin-upgrades/contracts/interfaces/IERC1271Upgradeable.sol";
-import {ISwapManager} from "./ISwapManager.sol";
+import {ISwapManager, DynamicInE} from "./ISwapManager.sol";
 import {SimpleBoringVault} from "./SimpleBoringVault.sol";
+import {DynamicFHE} from "./DynamicFHE.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import {IAllocationManager} from "@eigenlayer/contracts/interfaces/IAllocationManager.sol";
 // Fhenix CoFHE imports
@@ -24,6 +25,12 @@ struct InternalTransferInput {
     address to;
     address encToken;
     InEuint128 encAmount;  // AVS provides InEuint128 with signature
+}
+
+// Simple struct for emitting internal FHE handles with type information
+struct HandleWithType {
+    uint256 handle;
+    uint8 utype;
 }
 
 // Interface for the UniversalPrivacyHook (Fhenix CoFHE version)
@@ -422,11 +429,11 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
      */
 
     /**
-     * @notice Submit a Universal Encrypted Intent (UEI) with batching (Fhenix CoFHE version)
+     * @notice Submit a Universal Encrypted Intent (UEI) with batching (Dynamic typing support)
      * @param decoder Encrypted decoder address with signature
      * @param target Encrypted target address with signature
      * @param selector Encrypted selector with signature
-     * @param args Array of encrypted arguments with signatures
+     * @param args Array of dynamically-typed encrypted arguments
      * @param deadline Expiration timestamp for the intent
      * @return ueiId Unique identifier for the submitted UEI
      */
@@ -434,7 +441,7 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         InEaddress calldata decoder,
         InEaddress calldata target,
         InEuint32 calldata selector,
-        InEuint256[] calldata args,
+        DynamicInE[] calldata args,
         uint256 deadline
     ) external returns (bytes32 ueiId) {
         // Generate unique UEI ID (use ctHash from each encrypted input)
@@ -475,39 +482,75 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         // Add to current batch
         batch.intentIds.push(ueiId);
 
-        // Emit event with encrypted data hashes (operators decode from event, not storage!)
-        // Note: In Fhenix, operators will need the full InE* structs to decrypt
-        emit TradeSubmitted(ueiId, msg.sender, batchId, abi.encode(decoder, target, selector, args), deadline);
+        // Get stored internal handles for event emission
+        FHEHandles storage handles = ueiHandles[ueiId];
+
+        // Create HandleWithType structs with internal handles and original utypes
+        HandleWithType memory decoderHT = HandleWithType({
+            handle: eaddress.unwrap(handles.decoder),
+            utype: decoder.utype
+        });
+
+        HandleWithType memory targetHT = HandleWithType({
+            handle: eaddress.unwrap(handles.target),
+            utype: target.utype
+        });
+
+        HandleWithType memory selectorHT = HandleWithType({
+            handle: euint32.unwrap(handles.selector),
+            utype: selector.utype
+        });
+
+        HandleWithType[] memory argsHT = new HandleWithType[](handles.args.length);
+        for (uint256 i = 0; i < handles.args.length; i++) {
+            argsHT[i] = HandleWithType({
+                handle: euint256.unwrap(handles.args[i]),
+                utype: args[i].utype
+            });
+        }
+
+        // Emit event with internal handles + utypes (operators can now decrypt!)
+        emit TradeSubmitted(ueiId, msg.sender, batchId, abi.encode(decoderHT, targetHT, selectorHT, argsHT), deadline);
 
         return ueiId;
     }
 
     /**
-     * @notice Verify and internalize FHE handles (Fhenix CoFHE version)
+     * @notice Verify and internalize FHE handles (Fhenix CoFHE version with dynamic typing)
      * @dev Validates signatures and stores handles for later operator permission grants
+     *      Permission grants are type-agnostic (only care about uint256 handle)
+     *      Original utypes are preserved in event emission for operator decryption
      * @param ueiId The UEI identifier to map handles to
      * @param decoder Encrypted decoder address with signature
      * @param target Encrypted target address with signature
      * @param selector Encrypted selector with signature
-     * @param args Array of encrypted arguments with signatures
+     * @param args Array of dynamically-typed encrypted arguments with signatures
      */
     function _grantFHEPermissions(
         bytes32 ueiId,
         InEaddress calldata decoder,
         InEaddress calldata target,
         InEuint32 calldata selector,
-        InEuint256[] calldata args
+        DynamicInE[] calldata args
     ) internal {
         // Convert In* types to internal FHE types (validates signatures)
         eaddress decoderHandle = FHE.asEaddress(decoder);
         eaddress targetHandle = FHE.asEaddress(target);
         euint32 selectorHandle = FHE.asEuint32(selector);
 
-        // Convert all arguments
+        // Convert all arguments using DynamicFHE library (type-aware loading)
+        // Note: FHE permission system only cares about unwrapped uint256 handles
+        // Original utypes preserved in event for operator decryption
         euint256[] memory argsHandles = new euint256[](args.length);
         for (uint256 i = 0; i < args.length; i++) {
-            argsHandles[i] = FHE.asEuint256(args[i]);
-            FHE.allowThis(argsHandles[i]);  // Grant permission to this contract
+            // Load dynamic encrypted input and get unwrapped handle
+            uint256 handle = DynamicFHE.loadDynamic(args[i]);
+
+            // Wrap as euint256 for uniform storage (safe - permissions are handle-based)
+            argsHandles[i] = euint256.wrap(handle);
+
+            // Grant permission to this contract (unwraps to same uint256 handle internally)
+            FHE.allowThis(argsHandles[i]);
         }
 
         // Grant to this contract

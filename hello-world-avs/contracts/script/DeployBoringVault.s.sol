@@ -18,8 +18,8 @@ contract DeployBoringVault is Script {
     address internal deployer;
 
     // Deployed contract addresses on Sepolia
-    address constant UNIVERSAL_PRIVACY_HOOK = 0x32841c9E0245C4B1a9cc29137d7E1F078e6f0080;
-    address constant SWAP_MANAGER = 0xE1e00b5d08a08Cb141a11a922e48D4c06d66D3bf;
+    address constant UNIVERSAL_PRIVACY_HOOK = 0x2a7bD8f2517ee51bc79C9EE282cD6451412f4080;
+    address constant SWAP_MANAGER = 0x29F5F730fc25feEcd6D1d855bcb7Fe0Ad80D3DE5;
 
     function setUp() public virtual {
         deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
@@ -32,13 +32,14 @@ contract DeployBoringVault is Script {
         console2.log("\n=== Deploying SimpleBoringVault ===");
         console2.log("Deployer:", deployer);
         console2.log("UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
-        console2.log("SwapManager (tradeManager):", SWAP_MANAGER);
+        console2.log("SwapManager:", SWAP_MANAGER);
 
         // Deploy SimpleBoringVault
         // Constructor params: hook, tradeManager
+        // Set tradeManager = deployer so we can manage executors in the future
         SimpleBoringVault vault = new SimpleBoringVault(
             UNIVERSAL_PRIVACY_HOOK,
-            SWAP_MANAGER  // tradeManager = SwapManager
+            deployer  // tradeManager = deployer (for flexibility)
         );
 
         console2.log("\nSimpleBoringVault deployed at:", address(vault));
@@ -46,9 +47,14 @@ contract DeployBoringVault is Script {
         // Verify configuration
         console2.log("\nVerifying vault configuration...");
         require(vault.hook() == UNIVERSAL_PRIVACY_HOOK, "Hook mismatch");
-        require(vault.tradeManager() == SWAP_MANAGER, "TradeManager mismatch");
+        require(vault.tradeManager() == deployer, "TradeManager mismatch");
         console2.log("Hook:", vault.hook());
-        console2.log("TradeManager:", vault.tradeManager());
+        console2.log("TradeManager (deployer):", vault.tradeManager());
+
+        // Authorize SwapManager as executor
+        console2.log("\nAuthorizing SwapManager as executor...");
+        vault.setExecutor(SWAP_MANAGER, true);
+        console2.log("SwapManager authorized as executor");
 
         // Verify SwapManager is authorized
         require(vault.isAuthorized(SWAP_MANAGER), "SwapManager not authorized");

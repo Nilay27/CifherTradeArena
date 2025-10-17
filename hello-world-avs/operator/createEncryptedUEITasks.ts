@@ -15,35 +15,44 @@ import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import { initializeCofhe, batchEncrypt, EncryptionInput, FheTypes, CoFheItem } from './cofheUtils';
+import { loadDeploymentConfig, getNetworkName } from './config/deploymentConfig';
 
 dotenv.config();
 
 const PROVIDER_URL = process.env.RPC_URL || 'https://sepolia.infura.io/v3/YOUR_KEY';
 const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 
-// Sepolia testnet addresses
-const SWAP_MANAGER = '0xE1e00b5d08a08Cb141a11a922e48D4c06d66D3bf';
-const BORING_VAULT = '0x4D2a5229C238EEaF5DB0912eb4BE7c39575369f0';
-const USDC_SEPOLIA = '0x59dd1A3Bd1256503cdc023bfC9f10e107d64C3C1'; // Sepolia USDC
+// Dynamic addresses loaded from deployment files
+let SWAP_MANAGER: string;
+let BORING_VAULT: string;
+let USDC_ADDRESS: string;
 
 // Mock decoder for ERC20 transfers (for testing - in production would be verified via merkle tree)
 // Using a valid address format - decoder validation will be added with merkle tree in BoringVault
 const MOCK_ERC20_DECODER = '0x0000000000000000000000000000000000000001';
 
 /**
+ * Argument specification with value and FHE type
+ */
+interface ArgWithType {
+    value: string | bigint;
+    type: number;  // FheTypes value
+}
+
+/**
  * Batch encrypt all UEI components using CoFHE.js with type-aware encryption
  * Each component is encrypted with the correct FHE type:
- * - decoder: FheType.Address (InEaddress)
- * - target: FheType.Address (InEaddress)
- * - selector: FheType.Uint32 (InEuint32)
- * - args: FheType.Uint256 (InEuint256[])
- * Returns CoFheItem structs with correct utype for each component
+ * - decoder: FheType.Uint160 (Address)
+ * - target: FheType.Uint160 (Address)
+ * - selector: FheType.Uint32
+ * - args: Dynamic types (Address, Uint128, etc.) - NO Uint256!
+ * Returns CoFheItem structs (DynamicInE) with correct utype for each component
  */
 async function batchEncryptUEIComponents(
     decoder: string,
     target: string,
     selector: string,
-    args: (string | bigint)[],
+    args: ArgWithType[],
     contractAddress: string,
     signerAddress: string
 ): Promise<{
@@ -54,11 +63,17 @@ async function batchEncryptUEIComponents(
 }> {
     try {
         console.log("🔐 Batch encrypting UEI components using type-aware CoFHE.js...");
-        console.log(`  Decoder: ${decoder} (type: Address)`);
-        console.log(`  Target: ${target} (type: Address)`);
-        console.log(`  Selector: ${selector} (type: Uint32)`);
-        console.log(`  Args (${args.length}): (type: Uint256 each)`);
-        args.forEach((arg, i) => console.log(`    [${i}]: ${arg.toString()}`));
+        console.log(`  Decoder: ${decoder} (type: Address = ${FheTypes.Uint160})`);
+        console.log(`  Target: ${target} (type: Address = ${FheTypes.Uint160})`);
+        console.log(`  Selector: ${selector} (type: Uint32 = ${FheTypes.Uint32})`);
+        console.log(`  Args (${args.length}): Dynamic types`);
+        args.forEach((arg, i) => {
+            const typeName = arg.type === FheTypes.Uint160 ? 'Address' :
+                           arg.type === FheTypes.Uint128 ? 'Uint128' :
+                           arg.type === FheTypes.Uint64 ? 'Uint64' :
+                           arg.type === FheTypes.Uint32 ? 'Uint32' : `Type${arg.type}`;
+            console.log(`    [${i}]: ${arg.value.toString()} (type: ${typeName} = ${arg.type})`);
+        });
 
         // Prepare typed inputs for batch encryption
         const inputs: EncryptionInput[] = [
@@ -66,8 +81,8 @@ async function batchEncryptUEIComponents(
             { value: target, type: FheTypes.Uint160 },      // target as Address (Uint160)
             { value: selector, type: FheTypes.Uint32 },     // selector as Uint32
             ...args.map(arg => ({
-                value: typeof arg === 'string' ? BigInt(arg) : arg,
-                type: FheTypes.Uint256                       // each arg as Uint256
+                value: typeof arg.value === 'string' ? BigInt(arg.value) : arg.value,
+                type: arg.type  // Use provided type (Uint160, Uint128, etc.)
             }))
         ];
 
@@ -79,7 +94,7 @@ async function batchEncryptUEIComponents(
         console.log(`  Target: utype=${encryptedItems[1].utype} (expected ${FheTypes.Uint160})`);
         console.log(`  Selector: utype=${encryptedItems[2].utype} (expected ${FheTypes.Uint32})`);
         encryptedItems.slice(3).forEach((item, i) => {
-            console.log(`  Arg[${i}]: utype=${item.utype} (expected ${FheTypes.Uint256})`);
+            console.log(`  Arg[${i}]: utype=${item.utype} (expected ${args[i].type})`);
         });
 
         return {
@@ -106,10 +121,20 @@ async function createUSDCTransferUEI() {
         const provider = new ethers.JsonRpcProvider(PROVIDER_URL);
         const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
+        // Load deployment config based on chain ID
+        const network = await provider.getNetwork();
+        const chainId = Number(network.chainId);
+        const config = loadDeploymentConfig(chainId);
+
+        SWAP_MANAGER = config.swapManager;
+        BORING_VAULT = config.boringVault || '0x0000000000000000000000000000000000000000';
+        USDC_ADDRESS = config.mockUSDC;
+
+        console.log(`Network: ${config.network} (Chain ID: ${chainId})`);
         console.log("👤 Submitter wallet:", wallet.address);
         console.log("💰 Boring Vault:", BORING_VAULT);
         console.log("🏦 SwapManager:", SWAP_MANAGER);
-        console.log("💵 USDC:", USDC_SEPOLIA);
+        console.log("💵 USDC:", USDC_ADDRESS);
 
         // Load SwapManager ABI
         const swapManagerAbi = JSON.parse(
@@ -118,7 +143,7 @@ async function createUSDCTransferUEI() {
         const swapManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, wallet);
 
         // Simple USDC transfer parameters
-        // transfer(address to, uint256 amount)
+        // transfer(address to, uint128 amount) - Using Uint128 to avoid deprecated Uint256
         const transferSelector = '0xa9059cbb'; // transfer function selector
         const recipient = wallet.address; // Transfer to deployer for testing
         const amount = ethers.parseUnits('100', 6); // 100 USDC (6 decimals)
@@ -128,27 +153,29 @@ async function createUSDCTransferUEI() {
         console.log(`  To: ${recipient}`);
         console.log(`  Amount: ${ethers.formatUnits(amount, 6)} USDC`);
         console.log(`  Selector: ${transferSelector}`);
+        console.log(`  Function: transfer(address, uint128) - Dynamic types!`);
 
         // Initialize CoFHE.js
         await initializeCofhe(wallet);
 
         // Batch encrypt: decoder, target, selector, args
-        console.log("\n🔐 Encrypting UEI components...");
+        // Using dynamic types: Address (Uint160) for recipient, Uint128 for amount
+        console.log("\n🔐 Encrypting UEI components with dynamic types...");
         const encrypted = await batchEncryptUEIComponents(
             MOCK_ERC20_DECODER,  // decoder
-            USDC_SEPOLIA,        // target (USDC contract)
+            USDC_ADDRESS,        // target (USDC contract)
             transferSelector,    // selector (transfer)
             [
-                BigInt(recipient),  // arg[0]: recipient address as uint256
-                amount             // arg[1]: amount as uint256
+                { value: recipient, type: FheTypes.Uint160 },  // arg[0]: recipient as Address (utype 7)
+                { value: amount, type: FheTypes.Uint128 }      // arg[1]: amount as Uint128 (utype 6)
             ],
             SWAP_MANAGER,        // contract address for encryption context
             wallet.address       // signer address
         );
 
-        // Prepare CoFheItem structs for submission
+        // Prepare DynamicInE structs for submission
         // Each component is a full struct with {ctHash, securityZone, utype, signature}
-        // Contract expects: submitEncryptedUEI(InEaddress decoder, InEaddress target, InEuint32 selector, InEuint256[] args, deadline)
+        // Contract expects: submitEncryptedUEI(InEaddress decoder, InEaddress target, InEuint32 selector, DynamicInE[] args, deadline)
         const decoderStruct = {
             ctHash: ethers.toBeHex(encrypted.encryptedDecoder.ctHash, 32),
             securityZone: encrypted.encryptedDecoder.securityZone,
@@ -170,6 +197,7 @@ async function createUSDCTransferUEI() {
             signature: encrypted.encryptedSelector.signature
         };
 
+        // Args are now DynamicInE[] with mixed types (Address, Uint128, etc.)
         const argsStructs = encrypted.encryptedArgs.map(item => ({
             ctHash: ethers.toBeHex(item.ctHash, 32),
             securityZone: item.securityZone,
@@ -177,11 +205,17 @@ async function createUSDCTransferUEI() {
             signature: item.signature
         }));
 
-        console.log("\n📦 Prepared CoFheItem structs:");
+        console.log("\n📦 Prepared DynamicInE structs:");
         console.log(`  Decoder: utype=${decoderStruct.utype} (Address)`);
         console.log(`  Target: utype=${targetStruct.utype} (Address)`);
         console.log(`  Selector: utype=${selectorStruct.utype} (Uint32)`);
-        console.log(`  Args: ${argsStructs.length} items, each utype=${argsStructs[0]?.utype || 'N/A'} (Uint256)`);
+        console.log(`  Args (DynamicInE[]): ${argsStructs.length} items with mixed types:`);
+        argsStructs.forEach((arg, i) => {
+            const typeName = arg.utype === 7 ? 'Address' :
+                           arg.utype === 6 ? 'Uint128' :
+                           arg.utype === 4 ? 'Uint32' : `Type${arg.utype}`;
+            console.log(`    [${i}]: utype=${arg.utype} (${typeName})`);
+        });
 
         // Submit to SwapManager
         const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
@@ -189,13 +223,14 @@ async function createUSDCTransferUEI() {
         console.log("\n📤 Submitting UEI to SwapManager...");
         console.log(`  Deadline: ${new Date(deadline * 1000).toLocaleString()}`);
 
-        // Submit to SwapManager with individual CoFheItem structs
-        // Each encrypted component is passed separately with its correct type
+        // Submit to SwapManager with DynamicInE structs
+        // Each encrypted component is passed with its original type preserved
+        // Args can be mixed types (Address, Uint128, etc.) - NO Uint256!
         const tx = await swapManager.submitEncryptedUEI(
             decoderStruct,   // InEaddress
             targetStruct,    // InEaddress
             selectorStruct,  // InEuint32
-            argsStructs,     // InEuint256[]
+            argsStructs,     // DynamicInE[] - Mixed types!
             deadline,
             { nonce: await wallet.getNonce() }  // Add nonce as per project instructions
         );

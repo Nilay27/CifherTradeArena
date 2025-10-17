@@ -3,6 +3,17 @@ pragma solidity ^0.8.9;
 
 import {InEaddress, InEuint32, InEuint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
+/**
+ * @notice Dynamic encrypted input - supports any FHE type based on utype
+ * @dev Allows flexible argument encoding for UEI where args can be addresses, uint128, etc.
+ */
+struct DynamicInE {
+    uint256 ctHash;
+    uint8 securityZone;
+    uint8 utype;
+    bytes signature;
+}
+
 interface ISwapManager {
     // ============ BATCH SYSTEM ============
     
@@ -117,7 +128,7 @@ interface ISwapManager {
         InEaddress calldata decoder,
         InEaddress calldata target,
         InEuint32 calldata selector,
-        InEuint256[] calldata args,
+        DynamicInE[] calldata args,
         uint256 deadline
     ) external returns (bytes32 intentId);
 

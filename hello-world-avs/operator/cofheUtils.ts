@@ -52,15 +52,27 @@ export const initializeCofhe = async (signer: ethers.Wallet) => {
 
         console.log(`Initializing CoFHE.js for ${networkConfig.name} (chainId: ${networkConfig.chainId})`);
 
+        // Log the actual RPC URL being used by CoFHE.js
+        const actualRpcUrl = (signer.provider as any)._getConnection?.().url || 'unknown';
+        console.log(`CoFHE.js using RPC: ${actualRpcUrl}`);
+
         // Determine environment based on network
-        const environment = networkConfig.environment === 'LOCAL' ? 'MOCK' : networkConfig.environment;
+        // Use TESTNET for testnets (uses real FHE key servers), MOCK for local dev
+        const environment = networkConfig.environment;
+        console.log(`Environment: ${environment}`);
 
         // Initialize CoFHE.js with ethers provider and signer
+        // For TESTNET environment, must provide CoFHE service URLs
         await cofhejs.initializeWithEthers({
             ethersProvider: signer.provider,
             ethersSigner: signer,
-            environment: environment
+            environment: environment,
         });
+
+        // Debug: Check if SDK properly detected testnet and loaded FHE keys
+        const sdkState = cofhejs.store.getState();
+        console.log(`DEBUG: SDK isTestnet = ${sdkState.isTestnet}`);
+        console.log(`DEBUG: SDK fheKeysInitialized = ${sdkState.fheKeysInitialized}`);
 
         // Create permit ONCE - stored internally by CoFHE.js for all subsequent operations
         try {
@@ -187,11 +199,21 @@ export const batchDecrypt = async (items: CoFheItem[]): Promise<any[]> => {
     try {
         console.log(`Batch decrypting ${items.length} values with type information...`);
 
-        // Decrypt each value with its specific utype
-        const decryptPromises = items.map(async (item, index) => {
-            console.log(`  [${index}] Decrypting: ctHash=${item.ctHash}, utype=${item.utype}`);
+        // Debug: Check SDK state before decryption
+        const sdkState = cofhejs.store.getState();
+        console.log(`DEBUG before decrypt: isTestnet=${sdkState.isTestnet}, fheKeysInitialized=${sdkState.fheKeysInitialized}`);
 
-            const result = await cofhejs.unseal(item.ctHash, item.utype);
+        // WORKAROUND: Decrypt sequentially instead of in parallel
+        // CoFHE.js testnet has issues with parallel decryption of certain types (e.g., Uint32)
+        const results: any[] = [];
+
+        for (let index = 0; index < items.length; index++) {
+            const item = items[index];
+            // CRITICAL: Ensure utype is a number, not BigInt (from Solidity uint8)
+            const utype = typeof item.utype === 'bigint' ? Number(item.utype) : item.utype;
+            console.log(`  [${index}] Decrypting: ctHash=${item.ctHash}, utype=${utype}`);
+
+            const result = await cofhejs.unseal(item.ctHash, utype);
 
             if (!result.success) {
                 throw new Error(`Decryption failed for item ${index}: ${result.error?.message || 'Unknown error'}`);
@@ -199,13 +221,13 @@ export const batchDecrypt = async (items: CoFheItem[]): Promise<any[]> => {
 
             let decryptedValue = result.data;
 
-            // Convert based on utype
-            if (item.utype === FheTypes.Uint160) {
+            // Convert based on utype (now guaranteed to be a number)
+            if (utype === FheTypes.Uint160) {
                 // Address type - convert to address string
                 decryptedValue = typeof decryptedValue === 'string'
                     ? decryptedValue
                     : ethers.getAddress(ethers.toBeHex(BigInt(decryptedValue), 20));
-            } else if (item.utype === FheTypes.Bool) {
+            } else if (utype === FheTypes.Bool) {
                 // Boolean type
                 decryptedValue = Boolean(decryptedValue);
             } else {
@@ -213,13 +235,11 @@ export const batchDecrypt = async (items: CoFheItem[]): Promise<any[]> => {
                 decryptedValue = BigInt(decryptedValue);
             }
 
-            console.log(`  [${index}] Decrypted (utype ${item.utype}): ${decryptedValue}`);
-            return decryptedValue;
-        });
+            console.log(`  [${index}] Decrypted (utype ${utype}): ${decryptedValue}`);
+            results.push(decryptedValue);
+        }
 
-        const results = await Promise.all(decryptPromises);
         console.log(`✓ Successfully batch decrypted ${results.length} values`);
-
         return results;
     } catch (error) {
         console.error("Error batch decrypting values:", error);

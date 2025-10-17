@@ -1,0 +1,20 @@
+{
+  "network": "Sepolia",
+  "chainId": 11155111,
+  "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+  "universalPrivacyHook": "0x253f96dc2fA5120cD8e0dB2e74B19AE617794080",
+  "mockUSDC": "0xA1F2e4BBb074816120cb2dAdf7eFac3B2a97b1fA",
+  "mockUSDT": "0xbe4b86c8387104445c789E0a3B61767EF36456bE",
+  "encryptedUSDC": "0x7a227fe9c872645AA71FE6580dA30044f7933f71",
+  "encryptedUSDT": "0x6ABBA1333B9614C1c3BE689F4B5E6C887abA4980",
+  "poolId": "0x51ad69e8fe03c499fa031d48f7689d46731609ed9448cf23fc58f7d3bb417d9d",
+  "poolKey": {
+    "currency0": "0xA1F2e4BBb074816120cb2dAdf7eFac3B2a97b1fA",
+    "currency1": "0xbe4b86c8387104445c789E0a3B61767EF36456bE",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "hooks": "0x253f96dc2fA5120cD8e0dB2e74B19AE617794080"
+  },
+  "status": "complete",
+  "notes": "All tokens deployed, liquidity added, encrypted tokens created"
+}

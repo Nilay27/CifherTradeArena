@@ -3,9 +3,9 @@ pragma solidity ^0.8.12;
 
 import {Test} from "forge-std/Test.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
-import {FHE, InEaddress, InEuint32, InEuint256, InEuint128, euint128, euint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {FHE, InEaddress, InEuint32, InEuint128, euint128, euint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {SwapManager, InternalTransferInput, IUniversalPrivacyHook} from "../src/SwapManager.sol";
-import {ISwapManager} from "../src/ISwapManager.sol";
+import {ISwapManager, DynamicInE} from "../src/ISwapManager.sol";
 import {MockPrivacyHook} from "../src/MockPrivacyHook.sol";
 
 contract SwapManagerBatchTest is Test, CoFheTest {
@@ -557,7 +557,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         InEaddress memory encDecoder = createInEaddress(address(0x100), user1);
         InEaddress memory encTarget = createInEaddress(address(0x200), user1);
         InEuint32 memory encSelector = createInEuint32(0x12345678, user1);
-        InEuint256[] memory encArgs = new InEuint256[](0); // Empty args for this test
+        DynamicInE[] memory encArgs = new DynamicInE[](0); // Empty args for this test
 
         uint256 deadline = block.timestamp + 1 hours;
 
@@ -575,6 +575,65 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         assertEq(uint(task.status), uint(ISwapManager.UEIStatus.Pending));
     }
 
+    function testSubmitUEIWithTransferFunction() public {
+        // Test ERC20 transfer(address,uint128) with dynamic typed arguments
+        // Simulate: transfer(recipient, amount)
+
+        address recipient = address(0x777);
+        uint128 amount = 1000e6; // 1000 USDC
+
+        // Create encrypted inputs
+        InEaddress memory encDecoder = createInEaddress(address(0x1), user1); // Decoder address
+        InEaddress memory encTarget = createInEaddress(tokenA, user1); // Target = USDC token
+        InEuint32 memory encSelector = createInEuint32(0xa9059cbb, user1); // transfer(address,uint256)
+
+        // Create dynamic arguments: [address recipient, uint128 amount]
+        DynamicInE[] memory encArgs = new DynamicInE[](2);
+
+        // Arg 0: recipient address (utype 7)
+        InEaddress memory encRecipient = createInEaddress(recipient, user1);
+        encArgs[0] = DynamicInE({
+            ctHash: encRecipient.ctHash,
+            securityZone: encRecipient.securityZone,
+            utype: 7, // Address type
+            signature: encRecipient.signature
+        });
+
+        // Arg 1: amount (utype 6 = uint128)
+        InEuint128 memory encAmount = createInEuint128(amount, user1);
+        encArgs[1] = DynamicInE({
+            ctHash: encAmount.ctHash,
+            securityZone: encAmount.securityZone,
+            utype: 6, // Uint128 type
+            signature: encAmount.signature
+        });
+
+        uint256 deadline = block.timestamp + 1 hours;
+
+        // Submit UEI
+        vm.prank(user1);
+        bytes32 intentId = swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
+
+        // Verify intent was created
+        assertTrue(intentId != bytes32(0));
+
+        // Get the task
+        ISwapManager.UEITask memory task = swapManager.getUEITask(intentId);
+        assertEq(task.submitter, user1);
+        assertEq(task.deadline, deadline);
+        assertEq(uint(task.status), uint(ISwapManager.UEIStatus.Pending));
+
+        // Finalize batch to grant operator permissions
+        vm.warp(block.timestamp + 11 minutes);
+        swapManager.finalizeUEIBatch();
+
+        // Verify batch was finalized
+        ISwapManager.TradeBatch memory batch = swapManager.getTradeBatch(task.batchId);
+        assertTrue(batch.finalized);
+        assertEq(batch.intentIds.length, 1);
+        assertEq(batch.intentIds[0], intentId);
+    }
+
     // Test removed - submitEncryptedUEI is now public (users submit directly, not hooks)
     // Anyone can submit UEI, no authorization check needed
 
@@ -587,7 +646,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         InEaddress memory encDecoder = createInEaddress(address(0x100), user1);
         InEaddress memory encTarget = createInEaddress(address(0x200), user1);
         InEuint32 memory encSelector = createInEuint32(0x12345678, user1);
-        InEuint256[] memory encArgs = new InEuint256[](0);
+        DynamicInE[] memory encArgs = new DynamicInE[](0);
         uint256 deadline = block.timestamp + 1 hours;
 
         vm.prank(user1);
@@ -640,7 +699,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         InEaddress memory encDecoder = createInEaddress(address(0x100), user1);
         InEaddress memory encTarget = createInEaddress(address(0x200), user1);
         InEuint32 memory encSelector = createInEuint32(0x12345678, user1);
-        InEuint256[] memory encArgs = new InEuint256[](0);
+        DynamicInE[] memory encArgs = new DynamicInE[](0);
 
         vm.prank(user1);
         bytes32 intentId = swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, block.timestamp + 1 hours);
@@ -654,5 +713,27 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         vm.prank(notSelectedOperator);
         vm.expectRevert("Operator must be the caller");
         swapManager.processUEI(intentId, address(0x100), address(0x200), "", new bytes[](0));
+    }
+
+    function testRejectUint256Type() public {
+        // Verify that utype 8 (euint256) is explicitly rejected
+        InEaddress memory encDecoder = createInEaddress(address(0x1), user1);
+        InEaddress memory encTarget = createInEaddress(tokenA, user1);
+        InEuint32 memory encSelector = createInEuint32(0xa9059cbb, user1);
+
+        // Try to create arg with utype 8 (deprecated euint256)
+        DynamicInE[] memory encArgs = new DynamicInE[](1);
+        InEuint128 memory encAmount = createInEuint128(1000, user1);
+        encArgs[0] = DynamicInE({
+            ctHash: encAmount.ctHash,
+            securityZone: encAmount.securityZone,
+            utype: 8, // euint256 - DEPRECATED
+            signature: encAmount.signature
+        });
+
+        // Should revert with explicit error
+        vm.prank(user1);
+        vm.expectRevert("DynamicFHE: euint256 (utype 8) is deprecated and not supported");
+        swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, block.timestamp + 1 hours);
     }
 }

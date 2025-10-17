@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 import { initializeCofhe, batchEncrypt, FheTypes, CoFheItem, EncryptionInput } from './cofheUtils';
+import { loadDeploymentConfig, getNetworkName } from './config/deploymentConfig';
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -9,15 +10,18 @@ dotenv.config();
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || "https://sepolia.gateway.tenderly.co");
 const wallet = new ethers.Wallet(process.env.HELPER_WALLET_KEY!, provider);
 
-// For Sepolia
-const chainId = 11155111;
+// Get chain ID from provider
+async function getChainId(): Promise<number> {
+    const network = await provider.getNetwork();
+    return Number(network.chainId);
+}
 
-// Sepolia deployment addresses
-const UNIVERSAL_PRIVACY_HOOK = "0x32841c9E0245C4B1a9cc29137d7E1F078e6f0080";
-const SWAP_MANAGER_ADDRESS = "0xFbce8804FfC5413d60093702664ABfd71Ce0E592";
-
-console.log("Using UniversalPrivacyHook at:", UNIVERSAL_PRIVACY_HOOK);
-console.log("Using SwapManager at:", SWAP_MANAGER_ADDRESS);
+// Load deployment config (will be initialized in main)
+let config: ReturnType<typeof loadDeploymentConfig>;
+let UNIVERSAL_PRIVACY_HOOK: string;
+let SWAP_MANAGER_ADDRESS: string;
+let USDC_ADDRESS: string;
+let USDT_ADDRESS: string;
 
 // Load UniversalPrivacyHook ABI from abis folder
 let UniversalHookABI: any;
@@ -30,10 +34,6 @@ try {
     console.error(e);
     process.exit(1);
 }
-
-// Sepolia token addresses
-const USDC_ADDRESS = "0x59dd1A3Bd1256503cdc023bfC9f10e107d64C3C1";
-const USDT_ADDRESS = "0xB1D9519e953B8513a4754f9B33d37eDba90c001D";
 
 interface SwapIntent {
     tokenIn: string;
@@ -274,8 +274,25 @@ async function main() {
     console.log("🚀 Starting Helper Intent Auto-Submission Service");
     console.log("===================================================\n");
 
+    // Load deployment configuration based on chain ID
+    const chainId = await getChainId();
+    console.log(`Detected chain ID: ${chainId} (${getNetworkName(chainId)})`);
+
+    config = loadDeploymentConfig(chainId);
+    UNIVERSAL_PRIVACY_HOOK = config.universalPrivacyHook;
+    SWAP_MANAGER_ADDRESS = config.swapManager;
+    USDC_ADDRESS = config.mockUSDC;
+    USDT_ADDRESS = config.mockUSDT;
+
+    console.log("\nLoaded deployment addresses:");
+    console.log("  UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
+    console.log("  SwapManager:", SWAP_MANAGER_ADDRESS);
+    console.log("  Mock USDC:", USDC_ADDRESS);
+    console.log("  Mock USDT:", USDT_ADDRESS);
+    console.log("  Pool ID:", config.poolId);
+
     // Initialize CoFHE.js for FHE encryption
-    console.log("Initializing CoFHE.js...");
+    console.log("\nInitializing CoFHE.js...");
 
     await initializeCofhe(wallet);
 
