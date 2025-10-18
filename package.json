@@ -1,7 +1,7 @@
 {
-  "name": "alphaengine-hook",
+  "name": "ciphertrade-arena",
   "version": "1.0.0",
-  "description": "AlphaEngine Hook Integration",
+  "description": "CipherTrade Arena - Privacy-Preserving DEX",
   "scripts": {
     "test:integration": "node test-integration.js",
     "test:setup": "cd hello-world-avs && npm run setup:cofhe",
