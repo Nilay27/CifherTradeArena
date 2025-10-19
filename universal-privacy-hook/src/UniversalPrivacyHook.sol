@@ -94,8 +94,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
      */
     struct Batch {
         bytes32[] intentIds;     // Intent IDs in this batch
-        uint256 createdBlock;    // Block when batch was created
-        uint256 submittedBlock;  // Block when batch was submitted to AVS
+        uint256 createdTime;     // Timestamp when batch was created
+        uint256 submittedTime;   // Timestamp when batch was submitted to AVS
         bool finalized;          // Whether batch has been finalized
         bool settled;            // Whether batch has been settled
     }
@@ -103,14 +103,17 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     // =============================================================
     //                         CONSTANTS
     // =============================================================
-    
+
     bytes internal constant ZERO_BYTES = bytes("");
-    
+
     // FHE encrypted constants for reuse - removed as they're not used
 
     // =============================================================
     //                      STATE VARIABLES
     // =============================================================
+
+    /// @dev Admin address with privileged access
+    address public admin;
 
     /// @dev Per-pool encrypted token contracts: poolId => currency => IFHERC20
     mapping(PoolId => mapping(Currency => IFHERC20)) public poolEncryptedTokens;
@@ -122,8 +125,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     mapping(bytes32 => Intent) public intents;
 
     // AVS Batch Management
-    /// @dev Batch interval in blocks (5 blocks = ~5-60 seconds depending on chain)
-    uint256 public constant BATCH_INTERVAL = 5;
+    /// @dev Batch interval in seconds (timestamp-based, configurable per chain)
+    uint256 public batchInterval;
 
     /// @dev Current batch ID per pool
     mapping(PoolId => bytes32) public currentBatchId;
@@ -138,16 +141,39 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     //                        CONSTRUCTOR
     // =============================================================
 
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
-        // No FHE initialization needed in constructor
-        // FHE operations will be done when actually needed
+    constructor(IPoolManager _poolManager, address _admin) BaseHook(_poolManager) {
+        require(_admin != address(0), "Invalid admin address");
+        admin = _admin;
+        // batchInterval initialized to 0, must be set by admin before use
+    }
+
+    // =============================================================
+    //                          MODIFIERS
+    // =============================================================
+
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin");
+        _;
+    }
+
+    // =============================================================
+    //                     ADMIN FUNCTIONS
+    // =============================================================
+
+    /**
+     * @dev Set the batch interval (admin only)
+     * @param _batchInterval New batch interval in seconds
+     */
+    function setBatchInterval(uint256 _batchInterval) external onlyAdmin {
+        require(_batchInterval > 0, "Interval must be positive");
+        batchInterval = _batchInterval;
     }
 
     /**
-     * @dev Set the SwapManager address (only once)
+     * @dev Set the SwapManager address (admin only)
      * @param _swapManager Address of the AVS SwapManager contract
      */
-    function setSwapManager(address _swapManager) external {
+    function setSwapManager(address _swapManager) external onlyAdmin {
         require(_swapManager != address(0), "Invalid address");
         swapManager = _swapManager;
     }
@@ -190,8 +216,10 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         Currency currency,
         uint256 amount
     ) external nonReentrant {
+        require(batchInterval > 0, "Batch interval not set");
+
         PoolId poolId = key.toId();
-        
+
         // Validate hook is enabled for this pool
         require(address(key.hooks) == address(this), "Hook not enabled");
 
@@ -234,6 +262,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         InEuint128 memory encAmount,
         uint64 deadline
     ) external nonReentrant {
+        require(batchInterval > 0, "Batch interval not set");
+
         PoolId poolId = key.toId();
 
         // Validate currencies form valid pair for this pool
@@ -259,7 +289,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         Batch storage batch = batches[batchId];
 
         // Create new batch if needed (first batch or interval passed)
-        if (batchId == bytes32(0) || block.number >= batch.createdBlock + BATCH_INTERVAL) {
+        if (batchId == bytes32(0) || block.timestamp >= batch.createdTime + batchInterval) {
             // Finalize the previous batch if it exists and has intents
             if (batchId != bytes32(0) && batch.intentIds.length > 0 && !batch.finalized) {
                 _finalizeBatch(poolId, batchId);
@@ -270,8 +300,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
             currentBatchId[poolId] = batchId;
             batches[batchId] = Batch({
                 intentIds: new bytes32[](0),
-                createdBlock: block.number,
-                submittedBlock: 0,
+                createdTime: block.timestamp,
+                submittedTime: 0,
                 finalized: false,
                 settled: false
             });
@@ -399,7 +429,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
 
         Batch storage batch = batches[batchId];
         require(!batch.finalized, "Already finalized");
-        require(block.number >= batch.createdBlock + BATCH_INTERVAL, "Batch not ready");
+        require(block.timestamp >= batch.createdTime + batchInterval, "Batch not ready");
         require(batch.intentIds.length > 0, "Empty batch");
 
         _finalizeBatch(poolId, batchId);
@@ -415,7 +445,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
 
         // Mark as finalized
         batch.finalized = true;
-        batch.submittedBlock = block.number;
+        batch.submittedTime = block.timestamp;
 
         // Package batch data for AVS
         bytes[] memory encryptedIntents = new bytes[](batch.intentIds.length);

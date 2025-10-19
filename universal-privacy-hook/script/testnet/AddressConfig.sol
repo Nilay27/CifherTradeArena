@@ -29,6 +29,8 @@ library AddressConfig {
         // Hook and Pool Addresses (filled after deployment)
         address universalPrivacyHook;
         bytes32 poolId;
+        uint256 batchInterval;
+        address swapManager;
     }
 
     /// @notice Get network configuration by chain ID
@@ -51,7 +53,9 @@ library AddressConfig {
                 encryptedUSDC: address(0), // To be filled
                 encryptedUSDT: address(0), // To be filled
                 universalPrivacyHook: address(0), // To be filled
-                poolId: bytes32(0) // To be filled
+                poolId: bytes32(0), // To be filled
+                batchInterval: 30, // To be filled
+                swapManager: address(0) // To be filled
             });
         } else if (chainId == 84532) {
             // Base Sepolia
@@ -69,7 +73,9 @@ library AddressConfig {
                 encryptedUSDC: address(0), // To be filled
                 encryptedUSDT: address(0), // To be filled
                 universalPrivacyHook: address(0), // To be filled
-                poolId: bytes32(0) // To be filled
+                poolId: bytes32(0), // To be filled
+                batchInterval: 10, // To be filled
+                swapManager: address(0) // To be filled
             });
         } else if (chainId == 421614) {
             // Arbitrum Sepolia
@@ -87,7 +93,9 @@ library AddressConfig {
                 encryptedUSDC: address(0), // To be filled
                 encryptedUSDT: address(0), // To be filled
                 universalPrivacyHook: address(0), // To be filled
-                poolId: bytes32(0) // To be filled
+                poolId: bytes32(0), // To be filled
+                batchInterval: 10, // To be filled
+                swapManager: address(0) // To be filled
             });
         } else {
             revert("Unsupported chain ID");

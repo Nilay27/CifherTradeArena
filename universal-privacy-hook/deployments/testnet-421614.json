@@ -2,18 +2,18 @@
   "network": "Arbitrum Sepolia",
   "chainId": 421614,
   "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
-  "universalPrivacyHook": "0x2a7bD8f2517ee51bc79C9EE282cD6451412f4080",
-  "mockUSDC": "0x40d8438d2E20F1FF21780Aef6d55422F341ef1a4",
-  "mockUSDT": "0xf79f5D4387562Ba8536568C36C26Daf272B21071",
-  "encryptedUSDC": "0x72975Fd7a7ed99691B4408Ddc98BBb617155E237",
-  "encryptedUSDT": "0x74235449BeBE547c73d455158EBb3bd8E258aB77",
-  "poolId": "0x98a917774cc1e923ac2d656f891d6025e29493d1a34ab73fa6873ed8eb078553",
+  "universalPrivacyHook": "0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080",
+  "mockUSDC": "0x478700f3a33818eeBc3d9D41D4da8C54FDAEaD4b",
+  "mockUSDT": "0x2213f46EF0395026760cf8E3AD4a3a8f8ad7D0B0",
+  "encryptedUSDC": "0xe12B650A2b17ed9e461c47492C90bE48579E538F",
+  "encryptedUSDT": "0x8CF93E36341449c5998743143aEc34aE364c2c80",
+  "poolId": "0x147bf8e13073899fff220f3a4d839595462178ef1d98c76516875a426ce9f3dc",
   "poolKey": {
-    "currency0": "0x40d8438d2E20F1FF21780Aef6d55422F341ef1a4",
-    "currency1": "0xf79f5D4387562Ba8536568C36C26Daf272B21071",
+    "currency0": "0x2213f46EF0395026760cf8E3AD4a3a8f8ad7D0B0",
+    "currency1": "0x478700f3a33818eeBc3d9D41D4da8C54FDAEaD4b",
     "fee": 3000,
     "tickSpacing": 60,
-    "hooks": "0x2a7bD8f2517ee51bc79C9EE282cD6451412f4080"
+    "hooks": "0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080"
   },
   "status": "complete",
   "notes": "All tokens deployed, liquidity added, encrypted tokens created"

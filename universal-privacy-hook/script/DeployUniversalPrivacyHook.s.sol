@@ -61,17 +61,21 @@ contract DeployUniversalPrivacyHook is Script, DeployPermit2 {
             CREATE2_DEPLOYER,
             permissions,
             type(UniversalPrivacyHook).creationCode,
-            abi.encode(address(manager))
+            abi.encode(address(manager), msg.sender) // Include admin parameter
         );
 
         console.log("Expected hook address:", hookAddress);
         console.log("Salt found:", uint256(salt));
 
-        // Deploy the hook using CREATE2
-        hook = new UniversalPrivacyHook{salt: salt}(manager);
+        // Deploy the hook using CREATE2 (deployer is admin)
+        hook = new UniversalPrivacyHook{salt: salt}(manager, msg.sender);
         require(address(hook) == hookAddress, "Hook address mismatch");
 
         console.log("UniversalPrivacyHook deployed at:", address(hook));
+
+        // Set batch interval (default to 5 seconds for local testing)
+        hook.setBatchInterval(5);
+        console.log("Batch interval set to: 5 seconds");
 
         // Deploy additional helpers
         posm = deployPosm(manager);

@@ -10,6 +10,11 @@ interface ISwapManager {
     function admin() external view returns (address);
 }
 
+interface IERC20 {
+    function mint(address to, uint256 amount) external;
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+
 /**
  * @title DeployBoringVault
  * @notice Deploys SimpleBoringVault and configures it with SwapManager
@@ -18,8 +23,10 @@ contract DeployBoringVault is Script {
     address internal deployer;
 
     // Deployed contract addresses on Sepolia
-    address constant UNIVERSAL_PRIVACY_HOOK = 0x2a7bD8f2517ee51bc79C9EE282cD6451412f4080;
-    address constant SWAP_MANAGER = 0x29F5F730fc25feEcd6D1d855bcb7Fe0Ad80D3DE5;
+    address constant UNIVERSAL_PRIVACY_HOOK = 0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080;
+    address constant SWAP_MANAGER = 0x628c7202678d099e95E89084a9FE5b73E2a88464;
+    address constant USDC = 0x478700f3a33818eeBc3d9D41D4da8C54FDAEaD4b;
+    address constant USDT = 0x2213f46EF0395026760cf8E3AD4a3a8f8ad7D0B0;
 
     function setUp() public virtual {
         deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
@@ -64,6 +71,14 @@ contract DeployBoringVault is Script {
         console2.log("\nSetting BoringVault in SwapManager...");
         ISwapManager(SWAP_MANAGER).setBoringVault(payable(address(vault)));
         console2.log("BoringVault set in SwapManager");
+
+        // mint usdc and usdt to vault
+        console2.log("\nMinting tokens to vault...");
+        IERC20(USDC).mint(address(vault), 100_000 * 10**6);
+        console2.log("Minted 100,000 USDC to vault");
+
+        IERC20(USDT).mint(address(vault), 100_000 * 10**6);
+        console2.log("Minted 100,000 USDT to vault");
 
         vm.stopBroadcast();
 

@@ -289,10 +289,6 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
     ) external onlyOperator {
         Batch storage batch = batches[batchId];
         require(batch.status == BatchStatus.Processing, "Batch not processing");
-        require(
-            block.number <= batch.finalizedBlock + MAX_RESPONSE_INTERVAL_BLOCKS,
-            "Settlement window expired"
-        );
         require(operatorSignatures.length >= MIN_ATTESTATIONS, "Insufficient signatures");
 
         // Hash and signature verification

@@ -446,8 +446,13 @@ async function startUEIProcessor() {
             console.error("Error querying past events:", error);
         }
 
+        // Check if operator is admin (can bypass time constraints)
+        const adminAddress = await swapManager.admin();
+        const isAdmin = adminAddress.toLowerCase() === operatorWallet.address.toLowerCase();
+
         console.log("\n✅ UEI Processor is running...");
         console.log("Polling every 5 seconds for new batches...");
+        console.log(`Auto-finalizing batches every 20 seconds (when non-empty${isAdmin ? ', as admin - no time constraint' : ', respecting MAX_BATCH_IDLE'})...`);
         console.log("Press Ctrl+C to stop\n");
 
         // Poll for new events every 5 seconds
@@ -491,6 +496,77 @@ async function startUEIProcessor() {
                 console.error("Error in polling:", error.message);
             }
         }, 5000); // Poll every 5 seconds
+
+        // Auto-finalize batches every 20 seconds (independent of processUEI)
+        setInterval(async () => {
+            try {
+                console.log("\n⏰ Checking if batch should be finalized...");
+
+                // Get current batch counter and ID
+                const currentCounter = await swapManager.currentBatchCounter();
+                const batchId = await swapManager.batchCounterToBatchId(currentCounter);
+
+                // Check if batch exists (should not be zero)
+                if (batchId === ethers.ZeroHash) {
+                    console.log("  ⏭️  No active batch (batchId is zero), skipping finalization");
+                    return;
+                }
+
+                // Get batch details
+                const batch = await swapManager.getTradeBatch(batchId);
+
+                // Check if batch is empty
+                if (batch.intentIds.length === 0) {
+                    console.log("  📭 Batch is empty, skipping finalization");
+                    return;
+                }
+
+                // Check if batch is already finalized
+                if (batch.finalized) {
+                    console.log("  ✅ Batch already finalized, skipping");
+                    return;
+                }
+
+                // Check if enough time has passed (unless operator is admin)
+                if (!isAdmin) {
+                    const MAX_BATCH_IDLE = 60; // 1 minute in seconds
+                    const currentTimestamp = Math.floor(Date.now() / 1000);
+                    const batchAge = currentTimestamp - Number(batch.createdAt);
+
+                    if (batchAge < MAX_BATCH_IDLE) {
+                        console.log(`  ⏳ Batch is only ${batchAge}s old, need ${MAX_BATCH_IDLE}s. Waiting...`);
+                        return;
+                    }
+                }
+
+                console.log(`  🎯 Batch ${batchId} has ${batch.intentIds.length} intent(s), triggering finalization...`);
+
+                // Call finalizeUEIBatch
+                const tx = await swapManager.finalizeUEIBatch({
+                    nonce: await operatorWallet.getNonce()
+                });
+
+                console.log(`  📤 Finalization transaction sent: ${tx.hash}`);
+                console.log("  ⏳ Waiting for confirmation...");
+
+                const receipt = await tx.wait();
+                console.log(`  ✅ Batch finalized successfully! Gas used: ${receipt.gasUsed.toString()}`);
+
+            } catch (error: any) {
+                // Handle specific errors gracefully
+                if (error.message.includes("Batch is empty")) {
+                    console.log("  📭 Batch is empty (caught in transaction), skipping");
+                } else if (error.message.includes("Batch already finalized")) {
+                    console.log("  ✅ Batch already finalized (caught in transaction), skipping");
+                } else if (error.message.includes("No active batch")) {
+                    console.log("  ⏭️  No active batch (caught in transaction), skipping");
+                } else if (error.message.includes("Batch not ready for finalization")) {
+                    console.log("  ⏳ Batch not ready yet (time constraint), will retry in 20s");
+                } else {
+                    console.error("  ❌ Error in auto-finalization:", error.message);
+                }
+            }
+        }, 20000); // Check and finalize every 20 seconds
 
         // Keep process alive
         await new Promise(() => {});

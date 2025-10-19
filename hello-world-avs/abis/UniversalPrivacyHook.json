@@ -6,9 +6,27 @@
         "name": "_poolManager",
         "type": "address",
         "internalType": "contract IPoolManager"
+      },
+      {
+        "name": "_admin",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "admin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -423,7 +441,7 @@
   },
   {
     "type": "function",
-    "name": "batchBlockInterval",
+    "name": "batchInterval",
     "inputs": [],
     "outputs": [
       {
@@ -446,56 +464,24 @@
     ],
     "outputs": [
       {
-        "name": "createdAt",
+        "name": "createdTime",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "settledAt",
+        "name": "submittedTime",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "status",
-        "type": "uint8",
-        "internalType": "enum UniversalPrivacyHook.BatchStatus"
+        "name": "finalized",
+        "type": "bool",
+        "internalType": "bool"
       },
       {
-        "name": "poolId",
-        "type": "bytes32",
-        "internalType": "PoolId"
-      },
-      {
-        "name": "poolKey",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
-          {
-            "name": "currency0",
-            "type": "address",
-            "internalType": "Currency"
-          },
-          {
-            "name": "currency1",
-            "type": "address",
-            "internalType": "Currency"
-          },
-          {
-            "name": "fee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
-          }
-        ]
+        "name": "settled",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -947,6 +933,19 @@
   },
   {
     "type": "function",
+    "name": "finalizeBatch",
+    "inputs": [
+      {
+        "name": "poolId",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "getHookPermissions",
     "inputs": [],
     "outputs": [
@@ -1072,47 +1071,41 @@
         "internalType": "bool"
       },
       {
+        "name": "poolKey",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      },
+      {
         "name": "batchId",
         "type": "bytes32",
         "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "isBatchReady",
-    "inputs": [
-      {
-        "name": "poolId",
-        "type": "bytes32",
-        "internalType": "PoolId"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "lastBatchBlock",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PoolId"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -1180,29 +1173,10 @@
   },
   {
     "type": "function",
-    "name": "processedBatches",
+    "name": "setBatchInterval",
     "inputs": [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "setBatchBlockInterval",
-    "inputs": [
-      {
-        "name": "_interval",
+        "name": "_batchInterval",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1233,9 +1207,51 @@
         "internalType": "bytes32"
       },
       {
-        "name": "internalizedTransfers",
+        "name": "internalTransfers",
         "type": "tuple[]",
-        "internalType": "struct ISwapManager.TokenTransfer[]",
+        "internalType": "struct UniversalPrivacyHook.InternalTransfer[]",
+        "components": [
+          {
+            "name": "to",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "encToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "encAmount",
+            "type": "uint256",
+            "internalType": "euint128"
+          }
+        ]
+      },
+      {
+        "name": "netAmountIn",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "tokenIn",
+        "type": "address",
+        "internalType": "Currency"
+      },
+      {
+        "name": "tokenOut",
+        "type": "address",
+        "internalType": "Currency"
+      },
+      {
+        "name": "outputToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "userShares",
+        "type": "tuple[]",
+        "internalType": "struct UniversalPrivacyHook.UserShare[]",
         "components": [
           {
             "name": "user",
@@ -1243,58 +1259,16 @@
             "internalType": "address"
           },
           {
-            "name": "token",
-            "type": "address",
-            "internalType": "address"
+            "name": "shareNumerator",
+            "type": "uint128",
+            "internalType": "uint128"
           },
           {
-            "name": "amount",
-            "type": "uint256",
-            "internalType": "euint128"
+            "name": "shareDenominator",
+            "type": "uint128",
+            "internalType": "uint128"
           }
         ]
-      },
-      {
-        "name": "netSwap",
-        "type": "tuple",
-        "internalType": "struct ISwapManager.NetSwap",
-        "components": [
-          {
-            "name": "tokenIn",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "tokenOut",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "netAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "isZeroForOne",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "recipients",
-            "type": "address[]",
-            "internalType": "address[]"
-          },
-          {
-            "name": "recipientAmounts",
-            "type": "uint256[]",
-            "internalType": "euint128[]"
-          }
-        ]
-      },
-      {
-        "name": "hasNetSwap",
-        "type": "bool",
-        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -1390,7 +1364,7 @@
       {
         "name": "",
         "type": "address",
-        "internalType": "contract ISwapManager"
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1496,7 +1470,7 @@
   },
   {
     "type": "event",
-    "name": "BatchSettled",
+    "name": "BatchExecuted",
     "inputs": [
       {
         "name": "batchId",
@@ -1505,16 +1479,48 @@
         "internalType": "bytes32"
       },
       {
-        "name": "matchedCount",
-        "type": "uint256",
+        "name": "netAmountIn",
+        "type": "uint128",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "uint128"
       },
       {
-        "name": "netCount",
+        "name": "netAmountOut",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BatchFinalized",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "intentCount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BatchSettled",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       }
     ],
     "anonymous": false
@@ -1546,6 +1552,12 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "encryptedToken",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1571,37 +1583,6 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "IntentExecuted",
-    "inputs": [
-      {
-        "name": "poolId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "PoolId"
-      },
-      {
-        "name": "intentId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "amountIn",
-        "type": "uint128",
-        "indexed": false,
-        "internalType": "uint128"
-      },
-      {
-        "name": "amountOut",
-        "type": "uint128",
-        "indexed": false,
-        "internalType": "uint128"
       }
     ],
     "anonymous": false

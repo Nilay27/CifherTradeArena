@@ -84,8 +84,11 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         // Deploy UniversalPrivacyHook
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
         address hookAddress = address(flags);
-        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager), hookAddress);
+        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager, address(this)), hookAddress);
         hook = UniversalPrivacyHook(hookAddress);
+
+        // Set batch interval (5 seconds for testing)
+        hook.setBatchInterval(5);
 
         // Create USDC/USDT pool
         poolKey = PoolKey(
@@ -377,9 +380,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         bytes32 batchIdToSettle = hook.currentBatchId(poolId);
         console.log("Batch ID to settle:", uint256(batchIdToSettle));
         
-        // === STEP 3: ADVANCE BLOCKS TO TRIGGER BATCH PROCESSING ===
-        console.log("\nStep 3: Advance blocks to finalize batch");
-        vm.roll(block.number + 6); // Move past batchBlockInterval
+        // === STEP 3: ADVANCE TIME TO TRIGGER BATCH PROCESSING ===
+        console.log("\nStep 3: Advance time to finalize batch");
+        vm.warp(block.timestamp + 6); // Move past batchInterval
         
         // Create a third intent to trigger batch finalization
         vm.startPrank(alice);
@@ -724,9 +727,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.stopPrank();
         
         bytes32 batchId = hook.currentBatchId(poolId);
-        
-        // Advance blocks to trigger batch finalization
-        vm.roll(block.number + 6);
+
+        // Advance time to trigger batch finalization
+        vm.warp(block.timestamp + 6);
         
         // Trigger batch finalization by submitting another intent
         vm.prank(bob);
@@ -799,8 +802,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         bytes32 batchId = hook.currentBatchId(poolId);
 
-        // Advance blocks and trigger finalization
-        vm.roll(block.number + 6);
+        // Advance time and trigger finalization
+        vm.warp(block.timestamp + 6);
 
         // Trigger batch finalization by submitting another intent
         vm.prank(bob);
@@ -852,7 +855,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
         // Add large offset to avoid interfering with flag bits in last bytes
         address freshHookAddress = address(uint160(0x1000000000000000000000000000000000000000) | flags);
-        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager), freshHookAddress);
+        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager, address(this)), freshHookAddress);
         UniversalPrivacyHook freshHook = UniversalPrivacyHook(freshHookAddress);
 
         // Try to set invalid address (address(0))
@@ -871,8 +874,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         uint160 differentFlags = uint160(Hooks.BEFORE_SWAP_FLAG);
         // Add large offset to avoid interfering with flag bits in last bytes
         address differentHookAddress = address(uint160(0x2000000000000000000000000000000000000000) | differentFlags);
-        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager), differentHookAddress);
+        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager, address(this)), differentHookAddress);
         UniversalPrivacyHook differentHook = UniversalPrivacyHook(differentHookAddress);
+        differentHook.setBatchInterval(5);
 
         PoolKey memory differentPoolKey = PoolKey(
             Currency.wrap(address(usdc)),
@@ -1003,8 +1007,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         bytes32 batchId = hook.currentBatchId(poolId);
 
-        // Advance blocks
-        vm.roll(block.number + 6);
+        // Advance time
+        vm.warp(block.timestamp + 6);
 
         // Finalize batch
         hook.finalizeBatch(poolId);
@@ -1066,8 +1070,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
         // Add large offset to avoid interfering with flag bits in last bytes
         address freshHookAddress = address(uint160(0x3000000000000000000000000000000000000000) | flags);
-        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager), freshHookAddress);
+        deployCodeTo("UniversalPrivacyHook.sol", abi.encode(manager, address(this)), freshHookAddress);
         UniversalPrivacyHook freshHook = UniversalPrivacyHook(freshHookAddress);
+        freshHook.setBatchInterval(5);
 
         PoolKey memory freshPoolKey = PoolKey(
             Currency.wrap(address(usdc)),
@@ -1100,8 +1105,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         bytes32 batchId = freshHook.currentBatchId(freshPoolId);
 
-        // Advance blocks and finalize
-        vm.roll(block.number + 6);
+        // Advance time and finalize
+        vm.warp(block.timestamp + 6);
         freshHook.finalizeBatch(freshPoolId);
 
         // Deploy MockSwapManager but don't set it in the hook
@@ -1158,8 +1163,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         bytes32 batchId = hook.currentBatchId(poolId);
 
-        // Advance blocks and finalize
-        vm.roll(block.number + 6);
+        // Advance time and finalize
+        vm.warp(block.timestamp + 6);
 
         // Trigger finalization by submitting another intent
         vm.prank(bob);
@@ -1262,8 +1267,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         bytes32 batchId = hook.currentBatchId(poolId);
 
-        // Advance blocks and finalize
-        vm.roll(block.number + 6);
+        // Advance time and finalize
+        vm.warp(block.timestamp + 6);
 
         // Trigger finalization
         vm.prank(bob);
@@ -1354,8 +1359,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         bytes32 batchId = hook.currentBatchId(poolId);
 
-        // Advance blocks and finalize
-        vm.roll(block.number + 6);
+        // Advance time and finalize
+        vm.warp(block.timestamp + 6);
 
         // Trigger finalization
         vm.startPrank(alice);

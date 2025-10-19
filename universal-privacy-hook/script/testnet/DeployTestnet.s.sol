@@ -106,26 +106,32 @@ contract DeployTestnet is Script {
     function deployHook() internal {
         // UniversalPrivacyHook needs BEFORE_SWAP_FLAG
         uint160 permissions = uint160(Hooks.BEFORE_SWAP_FLAG);
+        AddressConfig.NetworkConfig memory config = AddressConfig.getConfig(block.chainid);
 
         // Mine a salt that will produce a hook address with the correct permissions
         (address hookAddress, bytes32 salt) = HookMiner.find(
             CREATE2_DEPLOYER,
             permissions,
             type(UniversalPrivacyHook).creationCode,
-            abi.encode(address(manager))
+            abi.encode(address(manager), deployer) // Include admin parameter (deployer from private key)
         );
 
         console.log("Expected hook address:", hookAddress);
         console.log("Salt found:", uint256(salt));
 
-        // Deploy the hook using CREATE2
-        hook = new UniversalPrivacyHook{salt: salt}(manager);
+        // Deploy the hook using CREATE2 (deployer from private key is admin)
+        hook = new UniversalPrivacyHook{salt: salt}(manager, deployer);
         require(address(hook) == hookAddress, "Hook address mismatch");
 
         console.log("UniversalPrivacyHook deployed at:", address(hook));
 
+        // Set batch interval (default to 30 seconds for testnet)
+        uint256 batchInterval = vm.envOr("BATCH_INTERVAL", uint256(config.batchInterval));
+        hook.setBatchInterval(batchInterval);
+        console.log("Batch interval set to:", batchInterval, "seconds");
+
         // Set SwapManager address if available from environment
-        address swapManager = vm.envOr("SWAP_MANAGER", address(0));
+        address swapManager = config.swapManager;
         if (swapManager != address(0)) {
             hook.setSwapManager(swapManager);
             console.log("SwapManager set to:", swapManager);
@@ -165,8 +171,8 @@ contract DeployTestnet is Script {
 
     function addLiquidity() internal {
         // Add 10,000 of each token as liquidity
-        uint256 token0Amount = 10_000 * 10**6; // 10k tokens (6 decimals)
-        uint256 token1Amount = 10_000 * 10**6; // 10k tokens (6 decimals)
+        uint256 token0Amount = 100_000 * 10**6; // 10k tokens (6 decimals)
+        uint256 token1Amount = 100_000 * 10**6; // 10k tokens (6 decimals)
 
         console.log("Adding liquidity:", token0Amount / 10**6, "tokens each");
 

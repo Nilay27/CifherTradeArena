@@ -9,6 +9,7 @@ dotenv.config();
 // Setup env variables
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || "https://sepolia.gateway.tenderly.co");
 const wallet = new ethers.Wallet(process.env.HELPER_WALLET_KEY!, provider);
+console.log("Helper wallet address:", wallet.address);
 
 // Get chain ID from provider
 async function getChainId(): Promise<number> {
@@ -209,7 +210,8 @@ async function submitHelperCounterIntent(
     universalHook: ethers.Contract,
     poolKey: any,
     userTokenIn: string,
-    userTokenOut: string
+    userTokenOut: string,
+    poolId: string
 ): Promise<void> {
     if (isProcessingIntent) {
         console.log("Already processing an intent, skipping...");
@@ -233,11 +235,11 @@ async function submitHelperCounterIntent(
         if (intentId) {
             console.log(`✅ Helper counter-intent submitted: ${intentId}`);
 
-            // Wait ~48 seconds (4 blocks) then submit finalization trigger
-            console.log("⏰ Scheduling finalization trigger in 48 seconds...");
+            // Wait ~30 seconds (4 blocks) then submit finalization trigger
+            console.log("⏰ Scheduling finalization trigger in 30 seconds...");
             setTimeout(async () => {
-                await submitFinalizationTrigger(universalHook, poolKey);
-            }, 48000);
+                await submitFinalizationTrigger(universalHook, poolKey, poolId);
+            }, 25000);
         }
     } catch (error) {
         console.error("❌ Error submitting helper intent:", error);
@@ -248,23 +250,14 @@ async function submitHelperCounterIntent(
 
 async function submitFinalizationTrigger(
     universalHook: ethers.Contract,
-    poolKey: any
+    poolKey: any,
+    poolId: string
 ): Promise<void> {
     try {
         console.log("\n🎯 Submitting finalization trigger (tiny intent to force batch processing)...");
 
-        const tinyIntent: SwapIntent = {
-            tokenIn: USDC_ADDRESS,
-            tokenOut: USDT_ADDRESS,
-            amount: BigInt(200), // 200 wei to avoid Uniswap minimum swap revert
-            description: "Finalization trigger"
-        };
-
-        const intentId = await submitEncryptedIntent(universalHook, poolKey, tinyIntent);
-        if (intentId) {
-            console.log(`✅ Finalization trigger submitted: ${intentId}`);
-            console.log("📦 Batch should finalize and settle within 1-2 minutes!");
-        }
+        // call finalizeBatch based on poolId
+        await universalHook.finalizeBatch(poolId);
     } catch (error) {
         console.error("❌ Error submitting finalization trigger:", error);
     }
@@ -327,7 +320,7 @@ async function main() {
     console.log(`Starting from block: ${lastProcessedBlock}\n`);
 
     // Poll for new intents every 12 seconds (1 block time on Sepolia)
-    const pollInterval = 12000; // 12 seconds
+    const pollInterval = 5000; // 12 seconds in milliseconds
 
     async function pollForNewIntents() {
         try {
@@ -346,6 +339,11 @@ async function main() {
 
             console.log(`   Found ${events.length} IntentSubmitted events`);
 
+            // Find the first user intent (not from helper wallet) to use for counter-intent
+            let userIntentFound = false;
+            let firstUserTokenIn: string | null = null;
+            let firstUserTokenOut: string | null = null;
+
             for (const log of events) {
                 // Cast to EventLog to access args
                 const event = log as ethers.EventLog;
@@ -354,19 +352,26 @@ async function main() {
                 const { tokenIn, tokenOut, user, intentId } = event.args;
                 const blockNumber = event.blockNumber;
 
-                // Skip if it's our helper wallet
-                if (user.toLowerCase() === wallet.address.toLowerCase()) {
-                    continue;
-                }
-
                 console.log(`\n🔔 New intent detected from user: ${user.substring(0, 8)}...`);
                 console.log(`   Token In: ${tokenIn === USDC_ADDRESS ? 'USDC' : 'USDT'}`);
                 console.log(`   Token Out: ${tokenOut === USDC_ADDRESS ? 'USDC' : 'USDT'}`);
                 console.log(`   Intent ID: ${intentId}`);
                 console.log(`   Block: ${blockNumber}`);
 
-                // Submit helper counter-intent
-                await submitHelperCounterIntent(universalHook, poolKey, tokenIn, tokenOut);
+                // Track first user intent (skip helper wallet's own intents)
+                if (!userIntentFound && user.toLowerCase() !== wallet.address.toLowerCase()) {
+                    userIntentFound = true;
+                    firstUserTokenIn = tokenIn;
+                    firstUserTokenOut = tokenOut;
+                    console.log(`   ✓ This is a user intent, will submit counter-intent`);
+                } else if (user.toLowerCase() === wallet.address.toLowerCase()) {
+                    console.log(`   ↪ This is our own counter-intent, skipping`);
+                }
+            }
+
+            // Submit only ONE counter-intent if we found any user intents
+            if (userIntentFound && firstUserTokenIn && firstUserTokenOut) {
+                await submitHelperCounterIntent(universalHook, poolKey, firstUserTokenIn, firstUserTokenOut, config.poolId);
             }
 
             // Check for batch events too

@@ -10,7 +10,7 @@ import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
  * @dev Test version that bypasses hook address validation
  */
 contract TestableUniversalPrivacyHook is UniversalPrivacyHook {
-    constructor(IPoolManager _poolManager) UniversalPrivacyHook(_poolManager) {}
+    constructor(IPoolManager _poolManager, address _admin) UniversalPrivacyHook(_poolManager, _admin) {}
 
     /**
      * @dev Override to bypass address validation in tests

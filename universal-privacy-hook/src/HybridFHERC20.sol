@@ -68,6 +68,8 @@ contract HybridFHERC20 is ERC20, IFHERC20 {
         FHE.allowThis(encBalances[user]);
         FHE.allow(encBalances[user], user);
         FHE.allowGlobal(totalEncryptedSupply);
+
+        emit Transfer(address(0), user, uint256(euint128.unwrap(amount)));
     }
 
     // ----------- Encrypted Burn Functions -----------------
@@ -87,6 +89,8 @@ contract HybridFHERC20 is ERC20, IFHERC20 {
         FHE.allowThis(encBalances[user]);
         FHE.allow(encBalances[user], user);
         FHE.allowGlobal(totalEncryptedSupply);
+
+        emit Transfer(user, address(0), uint256(euint128.unwrap(burnAmount)));
     }
 
     function _calculateBurnAmount(address user, euint128 amount) internal returns(euint128){
@@ -133,6 +137,8 @@ contract HybridFHERC20 is ERC20, IFHERC20 {
         //allow users to interact with their balances
         FHE.allow(encBalances[to], to);
         FHE.allow(encBalances[from], from);
+
+        emit Transfer(from, to, uint256(euint128.unwrap(amountToSend)));
 
         return amountToSend;
     }

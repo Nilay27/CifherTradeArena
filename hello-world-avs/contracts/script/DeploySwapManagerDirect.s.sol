@@ -24,7 +24,7 @@ contract DeploySwapManagerDirect is Script {
     SwapManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
 
     // UniversalPrivacyHook address on Sepolia
-    address constant UNIVERSAL_PRIVACY_HOOK = 0x2a7bD8f2517ee51bc79C9EE282cD6451412f4080;
+    address constant UNIVERSAL_PRIVACY_HOOK = 0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080;
 
     function setUp() public virtual {
         deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
