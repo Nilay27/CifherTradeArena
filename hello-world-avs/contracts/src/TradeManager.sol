@@ -41,6 +41,63 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     mapping(address => bool) public operatorRegistered;
     mapping(address => uint256) public operatorIndex;
 
+    // ========================================= CIPHER TRADE ARENA STATE =========================================
+
+    // Epoch management
+    uint256 public currentEpochNumber;
+    mapping(uint256 => EpochData) public epochs;
+    mapping(uint256 => mapping(address => bool)) public hasSubmittedStrategy;
+    mapping(uint256 => address[]) public epochSubmitters; // List of submitters per epoch
+    mapping(uint256 => mapping(address => StrategyPerf)) public strategies; // epoch => submitter => strategy
+
+    // Epoch state enum
+    enum EpochState {
+        OPEN,              // Accepting strategy submissions
+        CLOSED,            // Submissions closed, operators simulating
+        RESULTS_POSTED,    // Encrypted APYs posted
+        FINALIZED,         // APYs decrypted, winners selected
+        EXECUTED           // Capital deployed
+    }
+
+    // Strategy node: single encrypted DeFi action
+    struct StrategyNode {
+        eaddress encoder;    // Sanitizer/decoder address (encrypted)
+        eaddress target;     // Protocol address: Aave, Compound, etc. (encrypted)
+        euint32 selector;    // Function selector as uint (encrypted)
+        euint256[] args;     // All function arguments as euint256 (encrypted)
+    }
+
+    // Strategy performance tracking
+    struct StrategyPerf {
+        StrategyNode[] nodes;      // Array of encrypted strategy nodes
+        euint256 encryptedAPY;     // Encrypted APY result (set by AVS)
+        address submitter;         // Strategy owner
+        uint256 submittedAt;       // Submission timestamp
+        bool finalized;            // Whether APY has been decrypted
+    }
+
+    // Epoch configuration and metadata
+    struct EpochData {
+        euint64 encSimStartTime;   // Encrypted simulation window start (prevents overfitting)
+        euint64 encSimEndTime;     // Encrypted simulation window end
+        uint64 epochStartTime;     // Public submission open time
+        uint64 epochEndTime;       // Public submission close time
+        uint8[] weights;           // Capital allocation weights [50, 30, 20] for top K
+        uint256 notionalPerTrader; // Fixed simulation amount (e.g., 100k USDC)
+        uint256 allocatedCapital;  // Real capital to deploy (e.g., 1M USDC)
+        EpochState state;          // Current epoch state
+        address[] selectedOperators; // Operators selected for this epoch
+        uint256 createdAt;         // Epoch creation timestamp
+    }
+
+    // Winner tracking (after finalization)
+    struct Winner {
+        address trader;
+        uint256 decryptedAPY;      // Decrypted APY value
+        uint256 allocation;        // Capital allocation based on weights
+    }
+    mapping(uint256 => Winner[]) public epochWinners; // epoch => winners array
+
     // ========================================= UEI STATE VARIABLES =========================================
 
     // UEI (Universal Encrypted Intent) management
@@ -144,6 +201,47 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
 
     event OperatorRegistered(address indexed operator);
 
+    // ========================================= CIPHER TRADE ARENA EVENTS =========================================
+
+    event EpochStarted(
+        uint256 indexed epochNumber,
+        uint64 epochStartTime,
+        uint64 epochEndTime,
+        uint8[] weights,
+        uint256 notionalPerTrader,
+        uint256 allocatedCapital
+    );
+
+    event StrategySubmitted(
+        uint256 indexed epochNumber,
+        address indexed submitter,
+        uint256 nodeCount,
+        uint256 submittedAt
+    );
+
+    event EpochClosed(
+        uint256 indexed epochNumber,
+        address[] selectedOperators,
+        uint256 submitterCount
+    );
+
+    event EncryptedAPYsPosted(
+        uint256 indexed epochNumber,
+        uint256 strategyCount
+    );
+
+    event EpochFinalized(
+        uint256 indexed epochNumber,
+        address[] winners,
+        uint256[] apys,
+        uint256[] allocations
+    );
+
+    event EpochExecuted(
+        uint256 indexed epochNumber,
+        uint256 totalDeployed
+    );
+
     /**
      * @notice Deterministically select operators for an epoch
      * @dev Used for epoch-based operator selection in CipherTradeArena
@@ -175,6 +273,74 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         }
 
         return selectedOps;
+    }
+
+    // ========================================= CIPHER TRADE ARENA FUNCTIONS =========================================
+
+    /**
+     * @notice Start a new epoch for strategy submissions
+     * @param encSimStartTime Encrypted simulation window start time
+     * @param encSimEndTime Encrypted simulation window end time
+     * @param epochDuration Duration in seconds for strategy submissions
+     * @param weights Capital allocation weights for top K winners (must sum to 100)
+     * @param notionalPerTrader Fixed simulation amount (e.g., 100k USDC)
+     * @param allocatedCapital Real capital to deploy (e.g., 1M USDC)
+     */
+    function startEpoch(
+        InEuint64 calldata encSimStartTime,
+        InEuint64 calldata encSimEndTime,
+        uint64 epochDuration,
+        uint8[] calldata weights,
+        uint256 notionalPerTrader,
+        uint256 allocatedCapital
+    ) external onlyAdmin {
+        // Validate weights sum to 100
+        uint256 totalWeight;
+        for (uint256 i = 0; i < weights.length; i++) {
+            totalWeight += weights[i];
+        }
+        require(totalWeight == 100, "Weights must sum to 100");
+        require(epochDuration > 0, "Duration must be positive");
+        require(notionalPerTrader > 0, "Notional must be positive");
+        require(allocatedCapital > 0, "Allocated capital must be positive");
+
+        // Increment epoch counter
+        currentEpochNumber++;
+        uint256 epochNumber = currentEpochNumber;
+
+        // Load encrypted simulation times
+        euint64 simStart = FHE.asEuint64(encSimStartTime);
+        euint64 simEnd = FHE.asEuint64(encSimEndTime);
+
+        // Grant contract permission to use encrypted times
+        FHE.allowThis(simStart);
+        FHE.allowThis(simEnd);
+
+        // Create epoch data
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = startTime + epochDuration;
+
+        epochs[epochNumber] = EpochData({
+            encSimStartTime: simStart,
+            encSimEndTime: simEnd,
+            epochStartTime: startTime,
+            epochEndTime: endTime,
+            weights: weights,
+            notionalPerTrader: notionalPerTrader,
+            allocatedCapital: allocatedCapital,
+            state: EpochState.OPEN,
+            selectedOperators: new address[](0), // Will be set in closeEpoch
+            createdAt: block.timestamp
+        });
+
+        emit EpochStarted(
+            epochNumber,
+            startTime,
+            endTime,
+            weights,
+            notionalPerTrader,
+            allocatedCapital
+        );
     }
 
     // ============================= UEI FUNCTIONALITY =============================
