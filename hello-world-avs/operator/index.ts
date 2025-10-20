@@ -21,10 +21,10 @@ console.log(`Using RPC: ${process.env.RPC_URL}`);
 let chainId: number;
 let delegationManagerAddress: string;
 let avsDirectoryAddress: string;
-let SwapManagerAddress: string;
+let TradeManagerAddress: string;
 let ecdsaStakeRegistryAddress: string;
 let delegationManager: ethers.Contract;
-let SwapManager: ethers.Contract;
+let TradeManager: ethers.Contract;
 let ecdsaRegistryContract: ethers.Contract;
 let avsDirectory: ethers.Contract;
 
@@ -45,18 +45,18 @@ async function initializeContracts() {
 
     delegationManagerAddress = coreDeploymentData.addresses.delegationManager;
     avsDirectoryAddress = coreDeploymentData.addresses.avsDirectory;
-    SwapManagerAddress = avsDeploymentData.addresses.SwapManager;
+    TradeManagerAddress = avsDeploymentData.addresses.TradeManager;
     ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
 
     // Load ABIs
     const delegationManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IDelegationManager.json'), 'utf8'));
     const ecdsaRegistryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/ECDSAStakeRegistry.json'), 'utf8'));
-    const SwapManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8'));
+    const TradeManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/TradeManager.json'), 'utf8'));
     const avsDirectoryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IAVSDirectory.json'), 'utf8'));
 
     // Initialize contract objects from ABIs
     delegationManager = new ethers.Contract(delegationManagerAddress, delegationManagerABI, wallet);
-    SwapManager = new ethers.Contract(SwapManagerAddress, SwapManagerABI, wallet);
+    TradeManager = new ethers.Contract(TradeManagerAddress, TradeManagerABI, wallet);
     ecdsaRegistryContract = new ethers.Contract(ecdsaStakeRegistryAddress, ecdsaRegistryABI, wallet);
     avsDirectory = new ethers.Contract(avsDirectoryAddress, avsDirectoryABI, wallet);
 }
@@ -98,7 +98,7 @@ const registerOperator = async () => {
         // Calculate the digest hash, which is a unique value representing the operator, avs, unique value (salt) and expiration date.
         const operatorDigestHash = await avsDirectory.calculateOperatorAVSRegistrationDigestHash(
             wallet.address,
-            await SwapManager.getAddress(),
+            await TradeManager.getAddress(),
             salt,
             expiry
         );
@@ -135,22 +135,22 @@ const registerOperator = async () => {
         }
     }
     
-    // Register with SwapManager for batch processing
+    // Register with TradeManager for batch processing
     try {
         // Check if already registered first
-        const isAlreadyRegistered = await SwapManager.isOperatorRegistered(wallet.address);
+        const isAlreadyRegistered = await TradeManager.isOperatorRegistered(wallet.address);
         if (isAlreadyRegistered) {
             console.log("Operator already registered for batch processing");
         } else {
             console.log("Registering operator for batch processing...");
             const nonce3 = await wallet.getNonce();
-            const tx3 = await SwapManager.registerOperatorForBatches({ nonce: nonce3 });
+            const tx3 = await TradeManager.registerOperatorForBatches({ nonce: nonce3 });
             await tx3.wait();
             console.log("Operator successfully registered for batch processing");
         }
         
         // Verify registration
-        const isRegistered = await SwapManager.isOperatorRegistered(wallet.address);
+        const isRegistered = await TradeManager.isOperatorRegistered(wallet.address);
         console.log(`Operator registration verified: ${isRegistered}`);
     } catch (error: any) {
         console.error("Error registering for batches:");
@@ -291,7 +291,7 @@ const matchIntents = async (intents: Intent[], encryptedTokenMap: Map<string, st
         }));
         encryptedAmounts = await batchEncrypt(
             inputs,
-            process.env.SWAP_MANAGER_ADDRESS,  // userAddress (SwapManager context)
+            process.env.SWAP_MANAGER_ADDRESS,  // userAddress (TradeManager context)
             process.env.HOOK_ADDRESS           // contractAddress (Hook address)
         );
     }
@@ -393,7 +393,7 @@ const processBatch = async (batchId: string, batchData: string) => {
     try {
         console.log(`\n=== Processing Batch ${batchId} ===`);
 
-        // Decode the batch data from SwapManager.BatchFinalized event
+        // Decode the batch data from TradeManager.BatchFinalized event
         // Format: abi.encode(batchId, batch.intentIds, poolId, address(this), encryptedIntents)
         const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
             ["bytes32", "bytes32[]", "bytes32", "address", "bytes[]"],
@@ -479,8 +479,8 @@ const processBatch = async (batchId: string, batchData: string) => {
         // Match intents and get settlement data (pass encrypted token map)
         const settlementData = await matchIntents(intents, encryptedTokenMap);
 
-        // Submit settlement to SwapManager (NOT hook directly!)
-        console.log("\n=== Submitting Settlement to SwapManager ===");
+        // Submit settlement to TradeManager (NOT hook directly!)
+        console.log("\n=== Submitting Settlement to TradeManager ===");
 
         // Convert internalTransfers encAmount to InEuint128 struct format for contract
         // CoFHE.js returns: {ctHash, securityZone, utype, signature}
@@ -536,10 +536,10 @@ const processBatch = async (batchId: string, batchData: string) => {
         console.log("User Shares:", settlementData.userShares.length);
         console.log("Signatures:", [signature].length);
 
-        // Submit to SwapManager.submitBatchSettlement()
+        // Submit to TradeManager.submitBatchSettlement()
         // Note: No inputProof needed with CoFHE.js - encrypted values are self-contained
         const nonce = await wallet.getNonce();
-        const tx = await SwapManager.submitBatchSettlement(
+        const tx = await TradeManager.submitBatchSettlement(
             decodedBatchId,
             internalTransfersForContract,
             settlementData.netAmountIn,
@@ -571,21 +571,21 @@ const processBatch = async (batchId: string, batchData: string) => {
 };
 
 const monitorBatches = async () => {
-    console.log("✅ Monitoring for new batches from SwapManager...");
+    console.log("✅ Monitoring for new batches from TradeManager...");
 
     let lastProcessedBlock = await provider.getBlockNumber();
     const processedBatches = new Set<string>();
 
     // Query past BatchFinalized events first
     try {
-        const filter = SwapManager.filters.BatchFinalized();
+        const filter = TradeManager.filters.BatchFinalized();
         const fromBlock = Math.max(0, lastProcessedBlock - 1000);
-        const events = await SwapManager.queryFilter(filter, fromBlock, lastProcessedBlock);
+        const events = await TradeManager.queryFilter(filter, fromBlock, lastProcessedBlock);
 
         if (events.length > 0) {
             console.log(`Found ${events.length} past BatchFinalized events`);
             for (const event of events) {
-                const parsedLog = SwapManager.interface.parseLog({
+                const parsedLog = TradeManager.interface.parseLog({
                     topics: event.topics as string[],
                     data: event.data
                 });
@@ -609,11 +609,11 @@ const monitorBatches = async () => {
             const currentBlock = await provider.getBlockNumber();
 
             if (currentBlock > lastProcessedBlock) {
-                const filter = SwapManager.filters.BatchFinalized();
-                const events = await SwapManager.queryFilter(filter, lastProcessedBlock + 1, currentBlock);
+                const filter = TradeManager.filters.BatchFinalized();
+                const events = await TradeManager.queryFilter(filter, lastProcessedBlock + 1, currentBlock);
 
                 for (const event of events) {
-                    const parsedLog = SwapManager.interface.parseLog({
+                    const parsedLog = TradeManager.interface.parseLog({
                         topics: event.topics as string[],
                         data: event.data
                     });
@@ -657,7 +657,7 @@ const main = async () => {
 
     // Monitor for UEI events
     // console.log("\n🔍 Starting UEI monitoring...");
-    // monitorUEIEvents(SwapManager, wallet, SwapManagerAddress);
+    // monitorUEIEvents(TradeManager, wallet, TradeManagerAddress);
 };
 
 main().catch((error) => {

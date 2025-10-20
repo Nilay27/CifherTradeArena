@@ -34,7 +34,7 @@ interface DeploymentAddresses {
     tokenB?: string;
 
     // AVS contracts
-    swapManager?: string;
+    tradeManager?: string;
     mockPrivacyHook?: string;
     serviceManager?: string;
     stakeRegistry?: string;
@@ -122,13 +122,13 @@ class E2ETestRunner {
             const avsDeploymentPath = path.join('hello-world-avs', 'contracts', 'deployments', 'swap-manager', `${CHAIN_ID}.json`);
             if (fs.existsSync(avsDeploymentPath)) {
                 const avsDeployment = JSON.parse(fs.readFileSync(avsDeploymentPath, 'utf8'));
-                this.addresses.swapManager = avsDeployment.addresses.SwapManager;
+                this.addresses.tradeManager = avsDeployment.addresses.TradeManager;
                 this.addresses.serviceManager = avsDeployment.addresses.serviceManager;
                 this.addresses.stakeRegistry = avsDeployment.addresses.stakeRegistry;
             }
 
             console.log('✅ AVS contracts deployed');
-            console.log('   SwapManager:', this.addresses.swapManager);
+            console.log('   TradeManager:', this.addresses.tradeManager);
 
         } catch (error) {
             console.error('Error deploying AVS:', error);
@@ -142,22 +142,22 @@ class E2ETestRunner {
 
         try {
             // Instead of using MockPrivacyHook, we'll configure the real UniversalPrivacyHook
-            // to work with the SwapManager
+            // to work with the TradeManager
 
             // Load contract ABIs
             const swapManagerABI = JSON.parse(
-                fs.readFileSync(path.join('hello-world-avs', 'abis', 'SwapManager.json'), 'utf8')
+                fs.readFileSync(path.join('hello-world-avs', 'abis', 'TradeManager.json'), 'utf8')
             );
 
-            const swapManager = new ethers.Contract(
-                this.addresses.swapManager!,
+            const tradeManager = new ethers.Contract(
+                this.addresses.tradeManager!,
                 swapManagerABI,
                 this.deployerWallet
             );
 
-            // Authorize the UniversalPrivacyHook in SwapManager
-            console.log('Authorizing UniversalPrivacyHook in SwapManager...');
-            const authTx = await swapManager.authorizeHook(this.addresses.universalPrivacyHook);
+            // Authorize the UniversalPrivacyHook in TradeManager
+            console.log('Authorizing UniversalPrivacyHook in TradeManager...');
+            const authTx = await tradeManager.authorizeHook(this.addresses.universalPrivacyHook);
             await authTx.wait();
 
             console.log('✅ Hook connected to AVS');
@@ -356,17 +356,17 @@ class E2ETestRunner {
         try {
             // Monitor for BatchSettled event
             const swapManagerABI = JSON.parse(
-                fs.readFileSync(path.join('hello-world-avs', 'abis', 'SwapManager.json'), 'utf8')
+                fs.readFileSync(path.join('hello-world-avs', 'abis', 'TradeManager.json'), 'utf8')
             );
 
-            const swapManager = new ethers.Contract(
-                this.addresses.swapManager!,
+            const tradeManager = new ethers.Contract(
+                this.addresses.tradeManager!,
                 swapManagerABI,
                 this.provider
             );
 
             return new Promise((resolve) => {
-                swapManager.once('BatchSettled', (batchId: string, success: boolean) => {
+                tradeManager.once('BatchSettled', (batchId: string, success: boolean) => {
                     console.log(`✅ Batch ${batchId} settled: ${success ? 'SUCCESS' : 'FAILED'}`);
                     resolve(success);
                 });

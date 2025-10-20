@@ -9,7 +9,7 @@ import {ECDSAUpgradeable} from
     "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
 import {IERC1271Upgradeable} from
     "@openzeppelin-upgrades/contracts/interfaces/IERC1271Upgradeable.sol";
-import {ISwapManager, DynamicInE} from "./ISwapManager.sol";
+import {ITradeManager, DynamicInE} from "./ITradeManager.sol";
 import {SimpleBoringVault} from "./SimpleBoringVault.sol";
 import {DynamicFHE} from "./DynamicFHE.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
@@ -59,11 +59,11 @@ interface IUniversalPrivacyHook {
 }
 
 /**
- * @title SwapManager - AVS for batch processing of encrypted swap intents
+ * @title TradeManager - AVS for batch processing of encrypted trade intents
  * @notice Manages operator selection, FHE decryption, and batch settlement
  * @dev Operators decrypt intents, match orders off-chain, and submit consensus-based settlements
  */
-contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
+contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     using ECDSAUpgradeable for bytes32;
 
     // Committee configuration
@@ -275,7 +275,7 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
     
     /**
      * @notice Submit batch settlement after off-chain matching
-     * @dev SwapManager loads InEuint128 to euint128 before forwarding to Hook
+     * @dev TradeManager loads InEuint128 to euint128 before forwarding to Hook
      */
     function submitBatchSettlement(
         bytes32 batchId,
@@ -314,15 +314,15 @@ contract SwapManager is ECDSAServiceManagerBase, ISwapManager {
         // Update batch status
         batch.status = BatchStatus.Settled;
 
-        // Load InEuint128 to euint128 in SwapManager (msg.sender context)
-        // This ensures FHE verification happens with SwapManager as msg.sender
+        // Load InEuint128 to euint128 in TradeManager (msg.sender context)
+        // This ensures FHE verification happens with TradeManager as msg.sender
         IUniversalPrivacyHook.InternalTransfer[] memory internalTransfers =
             new IUniversalPrivacyHook.InternalTransfer[](internalTransfersInput.length);
 
         for (uint256 i = 0; i < internalTransfersInput.length; i++) {
             euint128 loadedAmount = FHE.asEuint128(internalTransfersInput[i].encAmount);
 
-            // Allow Hook to use and grant permissions further (like Hook does for SwapManager in _finalizeBatch)
+            // Allow Hook to use and grant permissions further (like Hook does for TradeManager in _finalizeBatch)
             FHE.allowTransient(loadedAmount, batch.hook);
 
             internalTransfers[i] = IUniversalPrivacyHook.InternalTransfer({

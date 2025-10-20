@@ -197,13 +197,13 @@
   },
   {
     "type": "function",
-    "name": "swapManager",
+    "name": "tradeManager",
     "inputs": [],
     "outputs": [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract ISwapManager"
+        "internalType": "contract ITradeManager"
       }
     ],
     "stateMutability": "view"

@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
 import {SimpleBoringVault} from "../src/SimpleBoringVault.sol";
 
-interface ISwapManager {
+interface ITradeManager {
     function setBoringVault(address payable _vault) external;
     function admin() external view returns (address);
 }
@@ -17,7 +17,7 @@ interface IERC20 {
 
 /**
  * @title DeployBoringVault
- * @notice Deploys SimpleBoringVault and configures it with SwapManager
+ * @notice Deploys SimpleBoringVault and configures it with TradeManager
  */
 contract DeployBoringVault is Script {
     address internal deployer;
@@ -39,7 +39,7 @@ contract DeployBoringVault is Script {
         console2.log("\n=== Deploying SimpleBoringVault ===");
         console2.log("Deployer:", deployer);
         console2.log("UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
-        console2.log("SwapManager:", SWAP_MANAGER);
+        console2.log("TradeManager:", SWAP_MANAGER);
 
         // Deploy SimpleBoringVault
         // Constructor params: hook, tradeManager
@@ -58,19 +58,19 @@ contract DeployBoringVault is Script {
         console2.log("Hook:", vault.hook());
         console2.log("TradeManager (deployer):", vault.tradeManager());
 
-        // Authorize SwapManager as executor
-        console2.log("\nAuthorizing SwapManager as executor...");
+        // Authorize TradeManager as executor
+        console2.log("\nAuthorizing TradeManager as executor...");
         vault.setExecutor(SWAP_MANAGER, true);
-        console2.log("SwapManager authorized as executor");
+        console2.log("TradeManager authorized as executor");
 
-        // Verify SwapManager is authorized
-        require(vault.isAuthorized(SWAP_MANAGER), "SwapManager not authorized");
-        console2.log("SwapManager authorized:", vault.isAuthorized(SWAP_MANAGER));
+        // Verify TradeManager is authorized
+        require(vault.isAuthorized(SWAP_MANAGER), "TradeManager not authorized");
+        console2.log("TradeManager authorized:", vault.isAuthorized(SWAP_MANAGER));
 
-        // Set BoringVault address in SwapManager
-        console2.log("\nSetting BoringVault in SwapManager...");
-        ISwapManager(SWAP_MANAGER).setBoringVault(payable(address(vault)));
-        console2.log("BoringVault set in SwapManager");
+        // Set BoringVault address in TradeManager
+        console2.log("\nSetting BoringVault in TradeManager...");
+        ITradeManager(SWAP_MANAGER).setBoringVault(payable(address(vault)));
+        console2.log("BoringVault set in TradeManager");
 
         // mint usdc and usdt to vault
         console2.log("\nMinting tokens to vault...");
@@ -86,11 +86,11 @@ contract DeployBoringVault is Script {
         console2.log("SimpleBoringVault:", address(vault));
         console2.log("\nAuthorization Summary:");
         console2.log("- Hook can execute:", vault.isAuthorized(UNIVERSAL_PRIVACY_HOOK));
-        console2.log("- SwapManager can execute:", vault.isAuthorized(SWAP_MANAGER));
+        console2.log("- TradeManager can execute:", vault.isAuthorized(SWAP_MANAGER));
         console2.log("\nIntegration Status:");
         console2.log("- Hook can deposit: vault.deposit(token, amount)");
-        console2.log("- SwapManager can execute UEI: vault.execute(target, data, value)");
-        console2.log("- SwapManager.processUEI() -> vault.execute() -> target protocol");
+        console2.log("- TradeManager can execute UEI: vault.execute(target, data, value)");
+        console2.log("- TradeManager.processUEI() -> vault.execute() -> target protocol");
 
         // Write deployment info
         writeDeploymentInfo(address(vault));
@@ -109,7 +109,7 @@ contract DeployBoringVault is Script {
             vm.toString(vault),
             '","hook":"',
             vm.toString(UNIVERSAL_PRIVACY_HOOK),
-            '","swapManager":"',
+            '","tradeManager":"',
             vm.toString(SWAP_MANAGER),
             '"}}'
         );

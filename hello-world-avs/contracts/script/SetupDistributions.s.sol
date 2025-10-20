@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {Script} from "forge-std/Script.sol";
-import {SwapManagerDeploymentLib} from "./utils/SwapManagerDeploymentLib.sol";
+import {TradeManagerDeploymentLib} from "./utils/TradeManagerDeploymentLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./utils/CoreDeploymentParsingLib.sol";
 import {SetupDistributionsLib} from "./utils/SetupDistributionsLib.sol";
 import {IRewardsCoordinator} from "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
@@ -27,8 +27,8 @@ contract SetupDistributions is Script, Test {
     CoreDeployLib.DeploymentData coreDeployment;
     CoreDeployLib.DeploymentConfigData coreConfig;
 
-    SwapManagerDeploymentLib.DeploymentData swapManagerDeployment;
-    SwapManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
+    TradeManagerDeploymentLib.DeploymentData swapManagerDeployment;
+    TradeManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
 
     RewardsCoordinator rewardsCoordinator;
     string internal constant paymentInfofilePath = "test/mockData/scratch/payment_info.json";
@@ -66,9 +66,9 @@ contract SetupDistributions is Script, Test {
         coreConfig =
             CoreDeploymentParsingLib.readDeploymentConfigValues("config/core/", block.chainid);
         swapManagerDeployment =
-            SwapManagerDeploymentLib.readDeploymentJson("deployments/swap-manager/", block.chainid);
+            TradeManagerDeploymentLib.readDeploymentJson("deployments/swap-manager/", block.chainid);
         swapManagerConfig =
-            SwapManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
+            TradeManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
 
         rewardsCoordinator = RewardsCoordinator(coreDeployment.rewardsCoordinator);
 
@@ -159,11 +159,11 @@ contract SetupDistributions is Script, Test {
             swapManagerConfig.rewardsInitiator, _amountPerPayment * _numPayments
         );
         ERC20Mock(swapManagerDeployment.token).increaseAllowance(
-            swapManagerDeployment.SwapManager, _amountPerPayment * _numPayments
+            swapManagerDeployment.TradeManager, _amountPerPayment * _numPayments
         );
         uint32 duration = rewardsCoordinator.MAX_REWARDS_DURATION();
         SetupDistributionsLib.createAVSRewardsSubmissions(
-            swapManagerDeployment.SwapManager,
+            swapManagerDeployment.TradeManager,
             swapManagerDeployment.strategy,
             _numPayments,
             _amountPerPayment,
@@ -182,14 +182,14 @@ contract SetupDistributions is Script, Test {
             swapManagerConfig.rewardsInitiator, _amountPerPayment * _numPayments
         );
         ERC20Mock(swapManagerDeployment.token).increaseAllowance(
-            swapManagerDeployment.SwapManager, _amountPerPayment * _numPayments
+            swapManagerDeployment.TradeManager, _amountPerPayment * _numPayments
         );
         address[] memory operators = new address[](2);
         operators[0] = operator1;
         operators[1] = operator2;
 
         SetupDistributionsLib.createOperatorDirectedAVSRewardsSubmissions(
-            swapManagerDeployment.SwapManager,
+            swapManagerDeployment.TradeManager,
             operators,
             swapManagerDeployment.strategy,
             _numPayments,

@@ -398,7 +398,7 @@ const encrypted = await batchEncryptUEIComponents(
 );
 
 // Submit with argTypes
-await swapManager.submitEncryptedUEI(
+await tradeManager.submitEncryptedUEI(
     encrypted.encryptedDecoder,
     encrypted.encryptedTarget,
     encrypted.encryptedSelector,

@@ -4,13 +4,13 @@ pragma solidity ^0.8.0;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
 import "../src/MockPrivacyHook.sol";
-import "../src/SwapManager.sol";
+import "../src/TradeManager.sol";
 
 contract DeployWithMockHook is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         
-        // Read the existing SwapManager deployment
+        // Read the existing TradeManager deployment
         uint256 chainId = block.chainid;
         string memory deploymentFile = string.concat(
             "deployments/swap-manager/",
@@ -19,9 +19,9 @@ contract DeployWithMockHook is Script {
         );
         
         string memory json = vm.readFile(deploymentFile);
-        address swapManagerAddress = vm.parseJsonAddress(json, ".addresses.SwapManager");
+        address swapManagerAddress = vm.parseJsonAddress(json, ".addresses.TradeManager");
         
-        console2.log("Using SwapManager at:", swapManagerAddress);
+        console2.log("Using TradeManager at:", swapManagerAddress);
         
         vm.startBroadcast(deployerPrivateKey);
         
@@ -29,10 +29,10 @@ contract DeployWithMockHook is Script {
         MockPrivacyHook mockHook = new MockPrivacyHook(swapManagerAddress);
         console2.log("MockPrivacyHook deployed at:", address(mockHook));
         
-        // Authorize the MockPrivacyHook in SwapManager
-        SwapManager swapManager = SwapManager(swapManagerAddress);
-        swapManager.authorizeHook(address(mockHook));
-        console2.log("MockPrivacyHook authorized in SwapManager");
+        // Authorize the MockPrivacyHook in TradeManager
+        TradeManager tradeManager = TradeManager(swapManagerAddress);
+        tradeManager.authorizeHook(address(mockHook));
+        console2.log("MockPrivacyHook authorized in TradeManager");
         
         vm.stopBroadcast();
         
@@ -47,7 +47,7 @@ contract DeployWithMockHook is Script {
         
         // Create addresses object
         vm.serializeAddress(addresses, "mockPrivacyHook", address(mockHook));
-        string memory addressesJson = vm.serializeAddress(addresses, "swapManager", swapManagerAddress);
+        string memory addressesJson = vm.serializeAddress(addresses, "tradeManager", swapManagerAddress);
         
         // Combine into parent object
         vm.serializeString(parent, "lastUpdate", lastUpdateJson);
@@ -61,7 +61,7 @@ contract DeployWithMockHook is Script {
         vm.writeJson(finalJson, outputFile);
         
         console2.log("\n=== Deployment Complete ===");
-        console2.log("SwapManager:", swapManagerAddress);
+        console2.log("TradeManager:", swapManagerAddress);
         console2.log("MockPrivacyHook:", address(mockHook));
         console2.log("Authorization: MockPrivacyHook authorized to submit batches");
         console2.log("Saved to:", outputFile);

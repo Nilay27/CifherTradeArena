@@ -6,9 +6,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export interface SwapManagerDeployment {
-    SwapManager: string;
-    SwapManagerType: string;
+export interface TradeManagerDeployment {
+    TradeManager: string;
+    TradeManagerType: string;
     stakeRegistry: string;
     universalPrivacyHook: string;
     strategy: string;
@@ -39,7 +39,7 @@ export interface UniversalPrivacyHookDeployment {
 export interface DeploymentConfig {
     chainId: number;
     network: string;
-    swapManager: string;
+    tradeManager: string;
     universalPrivacyHook: string;
     mockUSDC: string;
     mockUSDT: string;
@@ -56,18 +56,18 @@ export interface DeploymentConfig {
  * @returns Deployment configuration object
  */
 export function loadDeploymentConfig(chainId: number): DeploymentConfig {
-    // Load SwapManager deployment
+    // Load TradeManager deployment
     const swapManagerPath = path.resolve(
         __dirname,
         `../../contracts/deployments/swap-manager/${chainId}.json`
     );
 
     if (!fs.existsSync(swapManagerPath)) {
-        throw new Error(`SwapManager deployment not found for chain ${chainId} at ${swapManagerPath}`);
+        throw new Error(`TradeManager deployment not found for chain ${chainId} at ${swapManagerPath}`);
     }
 
     const swapManagerData = JSON.parse(fs.readFileSync(swapManagerPath, 'utf8'));
-    const swapManagerAddresses: SwapManagerDeployment = swapManagerData.addresses;
+    const swapManagerAddresses: TradeManagerDeployment = swapManagerData.addresses;
 
     // Load UniversalPrivacyHook deployment
     const hookPath = path.resolve(
@@ -85,7 +85,7 @@ export function loadDeploymentConfig(chainId: number): DeploymentConfig {
     if (swapManagerAddresses.universalPrivacyHook !== hookData.universalPrivacyHook) {
         console.warn(
             `Warning: UniversalPrivacyHook address mismatch!\n` +
-            `  SwapManager config: ${swapManagerAddresses.universalPrivacyHook}\n` +
+            `  TradeManager config: ${swapManagerAddresses.universalPrivacyHook}\n` +
             `  Hook deployment: ${hookData.universalPrivacyHook}\n` +
             `  Using address from Hook deployment.`
         );
@@ -107,7 +107,7 @@ export function loadDeploymentConfig(chainId: number): DeploymentConfig {
     return {
         chainId: hookData.chainId,
         network: hookData.network,
-        swapManager: swapManagerAddresses.SwapManager,
+        tradeManager: swapManagerAddresses.TradeManager,
         universalPrivacyHook: hookData.universalPrivacyHook,
         mockUSDC: hookData.mockUSDC,
         mockUSDT: hookData.mockUSDT,

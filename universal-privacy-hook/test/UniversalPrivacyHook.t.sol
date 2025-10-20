@@ -32,8 +32,8 @@ import {IFHERC20} from "../src/interfaces/IFHERC20.sol";
 import {HybridFHERC20} from "../src/HybridFHERC20.sol";
 
 // AVS Imports for testing integration
-import {ISwapManager} from "../src/interfaces/ISwapManager.sol";
-import {MockSwapManager, IHookSettlement, InternalTransferInput} from "../src/test/MockSwapManager.sol";
+import {ITradeManager} from "../src/interfaces/ITradeManager.sol";
+import {MockTradeManager, IHookSettlement, InternalTransferInput} from "../src/test/MockTradeManager.sol";
 
 interface IUniversalPrivacyHook {
     enum BatchStatus {
@@ -44,7 +44,7 @@ interface IUniversalPrivacyHook {
     }
     
     function currentBatchId(PoolId) external view returns (bytes32);
-    function swapManager() external view returns (ISwapManager);
+    function tradeManager() external view returns (ITradeManager);
     function poolEncryptedTokens(PoolId, Currency) external view returns (IFHERC20);
     function poolReserves(PoolId, Currency) external view returns (uint256);
 }
@@ -62,7 +62,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
     // Contracts
     UniversalPrivacyHook hook;
-    MockSwapManager swapManager;
+    MockTradeManager tradeManager;
     MockERC20 usdc;
     MockERC20 usdt;
     PoolKey poolKey;
@@ -132,12 +132,12 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.prank(bob);
         usdt.approve(address(hook), type(uint256).max);
         
-        // Deploy and set MockSwapManager
-        swapManager = new MockSwapManager();
-        swapManager.setHook(address(hook));
+        // Deploy and set MockTradeManager
+        tradeManager = new MockTradeManager();
+        tradeManager.setHook(address(hook));
 
-        // Set SwapManager in hook
-        hook.setSwapManager(address(swapManager));
+        // Set TradeManager in hook
+        hook.setTradeManager(address(tradeManager));
     }
 
     function testPoolCreation() public {
@@ -438,7 +438,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         // Operator calls mockSettleBatch (msg.sender = operator when FHE.asEuint128 is called)
         vm.startPrank(operator);
-        swapManager.mockSettleBatch(
+        tradeManager.mockSettleBatch(
             batchIdToSettle,
             internalTransfers,
             50e6, // netAmountIn - net 50 USDC to swap for USDT
@@ -757,8 +757,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         });
 
         // Execute settlement (no inputProof for Fhenix)
-        vm.prank(address(swapManager));
-        swapManager.mockSettleBatch(
+        vm.prank(address(tradeManager));
+        tradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             500e6, // netAmountIn
@@ -831,8 +831,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         });
 
         // This should succeed even with just 1 intent
-        vm.prank(address(swapManager));
-        swapManager.mockSettleBatch(
+        vm.prank(address(tradeManager));
+        tradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             100e6, // netAmountIn
@@ -847,11 +847,11 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
     }
 
     // ============================================
-    // ERROR CONDITION TESTS - setSwapManager
+    // ERROR CONDITION TESTS - setTradeManager
     // ============================================
 
-    function testSetSwapManager_RevertInvalidAddress() public {
-        // Deploy a fresh hook to test setSwapManager
+    function testSetTradeManager_RevertInvalidAddress() public {
+        // Deploy a fresh hook to test setTradeManager
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
         // Add large offset to avoid interfering with flag bits in last bytes
         address freshHookAddress = address(uint160(0x1000000000000000000000000000000000000000) | flags);
@@ -860,9 +860,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         // Try to set invalid address (address(0))
         vm.expectRevert("Invalid address");
-        freshHook.setSwapManager(address(0));
+        freshHook.setTradeManager(address(0));
 
-        console.log("setSwapManager correctly rejects address(0)");
+        console.log("setTradeManager correctly rejects address(0)");
     }
 
     // ============================================
@@ -1065,8 +1065,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
     // ERROR CONDITION TESTS - settleBatch
     // ============================================
 
-    function testSettleBatch_RevertSwapManagerNotSet() public {
-        // Deploy a fresh hook without setting swapManager
+    function testSettleBatch_RevertTradeManagerNotSet() public {
+        // Deploy a fresh hook without setting tradeManager
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
         // Add large offset to avoid interfering with flag bits in last bytes
         address freshHookAddress = address(uint160(0x3000000000000000000000000000000000000000) | flags);
@@ -1109,9 +1109,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.warp(block.timestamp + 6);
         freshHook.finalizeBatch(freshPoolId);
 
-        // Deploy MockSwapManager but don't set it in the hook
-        MockSwapManager freshSwapManager = new MockSwapManager();
-        freshSwapManager.setHook(address(freshHook));
+        // Deploy MockTradeManager but don't set it in the hook
+        MockTradeManager freshTradeManager = new MockTradeManager();
+        freshTradeManager.setHook(address(freshHook));
 
         // We need to create the output token (USDT) first to avoid underflow
         // Bob needs to approve freshHook and deposit USDT to create the encrypted token
@@ -1120,19 +1120,19 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         vm.prank(bob);
         freshHook.deposit(freshPoolKey, Currency.wrap(address(usdt)), DEPOSIT_AMOUNT);
 
-        // Mark batch as finalized in freshSwapManager to pass its check
-        freshSwapManager.finalizeBatch(batchId, "");
+        // Mark batch as finalized in freshTradeManager to pass its check
+        freshTradeManager.finalizeBatch(batchId, "");
 
-        // Try to settle without setting swapManager in hook
+        // Try to settle without setting tradeManager in hook
         InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
         // Get the output token address
         address outputToken = address(freshHook.poolEncryptedTokens(freshPoolId, Currency.wrap(address(usdt))));
 
-        vm.prank(address(freshSwapManager));
-        vm.expectRevert("SwapManager not set");
-        freshSwapManager.mockSettleBatch(
+        vm.prank(address(freshTradeManager));
+        vm.expectRevert("TradeManager not set");
+        freshTradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             0,
@@ -1142,10 +1142,10 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
             userShares
         );
 
-        console.log("settleBatch correctly rejects when SwapManager not set");
+        console.log("settleBatch correctly rejects when TradeManager not set");
     }
 
-    function testSettleBatch_RevertOnlySwapManager() public {
+    function testSettleBatch_RevertOnlyTradeManager() public {
         // Alice deposits and submits intent
         vm.prank(alice);
         hook.deposit(poolKey, Currency.wrap(address(usdc)), DEPOSIT_AMOUNT);
@@ -1180,23 +1180,23 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         );
         vm.stopPrank();
 
-        // Create a fake swapManager (not the authorized one)
-        MockSwapManager fakeSwapManager = new MockSwapManager();
-        fakeSwapManager.setHook(address(hook));
+        // Create a fake tradeManager (not the authorized one)
+        MockTradeManager fakeTradeManager = new MockTradeManager();
+        fakeTradeManager.setHook(address(hook));
 
-        // Need to mark the batch as finalized in the fakeSwapManager so it passes the MockSwapManager check
-        fakeSwapManager.finalizeBatch(batchId, "");
+        // Need to mark the batch as finalized in the fakeTradeManager so it passes the MockTradeManager check
+        fakeTradeManager.finalizeBatch(batchId, "");
 
-        // Try to settle from unauthorized swapManager (fakeSwapManager instead of swapManager)
+        // Try to settle from unauthorized tradeManager (fakeTradeManager instead of tradeManager)
         InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
         IHookSettlement.UserShare[] memory userShares = new IHookSettlement.UserShare[](0);
 
         // Compute outputToken before expectRevert to avoid consuming it
         address outputToken = address(hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdt))));
 
-        vm.prank(address(fakeSwapManager));
-        vm.expectRevert("Only SwapManager");
-        fakeSwapManager.mockSettleBatch(
+        vm.prank(address(fakeTradeManager));
+        vm.expectRevert("Only TradeManager");
+        fakeTradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             0,
@@ -1206,7 +1206,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
             userShares
         );
 
-        console.log("settleBatch correctly rejects non-SwapManager caller");
+        console.log("settleBatch correctly rejects non-TradeManager caller");
     }
 
     function testSettleBatch_RevertBatchNotFinalized() public {
@@ -1234,9 +1234,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         // Compute outputToken before expectRevert to avoid consuming it
         address outputToken = address(hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdt))));
 
-        vm.prank(address(swapManager));
+        vm.prank(address(tradeManager));
         vm.expectRevert("Batch not finalized");
-        swapManager.mockSettleBatch(
+        tradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             0,
@@ -1291,8 +1291,8 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         // Compute outputToken before expectRevert to avoid consuming it
         address outputToken = address(hook.poolEncryptedTokens(poolId, Currency.wrap(address(usdt))));
 
-        vm.prank(address(swapManager));
-        swapManager.mockSettleBatch(
+        vm.prank(address(tradeManager));
+        tradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             0,
@@ -1303,9 +1303,9 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
         );
 
         // Try to settle again - should revert with "Already settled"
-        vm.prank(address(swapManager));
+        vm.prank(address(tradeManager));
         vm.expectRevert("Already settled");
-        swapManager.mockSettleBatch(
+        tradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             0,
@@ -1394,7 +1394,7 @@ contract UniversalPrivacyHookTest is Test, Deployers, CoFheUtils {
 
         // Operator calls mockSettleBatch
         vm.startPrank(operator);
-        swapManager.mockSettleBatch(
+        tradeManager.mockSettleBatch(
             batchId,
             internalTransfers,
             0, // NO net swap

@@ -8,10 +8,10 @@ use alloy::primitives::Address;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
-pub struct SwapManagerData {
+pub struct TradeManagerData {
     #[serde(rename = "lastUpdate")]
     pub last_update: LastUpdate,
-    pub addresses: SwapManagerAddresses,
+    pub addresses: TradeManagerAddresses,
 }
 
 #[derive(Deserialize, Debug)]
@@ -21,12 +21,12 @@ pub struct LastUpdate {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct SwapManagerAddresses {
+pub struct TradeManagerAddresses {
     #[serde(rename = "proxyAdmin")]
     pub proxy_admin: String,
-    #[serde(rename = "SwapManager")]
+    #[serde(rename = "TradeManager")]
     pub swap_manager_service_manager: String,
-    #[serde(rename = "SwapManagerImpl")]
+    #[serde(rename = "TradeManagerImpl")]
     pub swap_manager_service_manager_impl: String,
     #[serde(rename = "stakeRegistry")]
     pub stake_registry: String,
@@ -79,11 +79,11 @@ pub fn get_anvil_eigenlayer_deployment_data() -> eyre::Result<EigenLayerData> {
     Ok(el_parsed)
 }
 
-pub fn get_anvil_swap_manager_deployment_data() -> eyre::Result<SwapManagerData> {
+pub fn get_anvil_swap_manager_deployment_data() -> eyre::Result<TradeManagerData> {
     let file_path = Path::new(&env!("CARGO_MANIFEST_DIR").to_string())
         .join("../../../../contracts/deployments/swap-manager/31337.json");
     let data = std::fs::read_to_string(file_path)?;
-    let parsed_data: SwapManagerData = serde_json::from_str(&data)?;
+    let parsed_data: TradeManagerData = serde_json::from_str(&data)?;
     Ok(parsed_data)
 }
 

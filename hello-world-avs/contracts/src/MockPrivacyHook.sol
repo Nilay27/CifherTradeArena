@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {ISwapManager} from "./ISwapManager.sol";
+import {ITradeManager} from "./ITradeManager.sol";
 import {SimpleBoringVault} from "./SimpleBoringVault.sol";
 import {FHE, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
-import {Currency} from "./SwapManager.sol";
+import {Currency} from "./TradeManager.sol";
 
 /**
  * @title MockPrivacyHook
@@ -12,14 +12,14 @@ import {Currency} from "./SwapManager.sol";
  * @dev This contract allows testing of batch-based AVS operator decryption, matching, and encrypted trade intents
  */
 contract MockPrivacyHook {
-    ISwapManager public swapManager;
+    ITradeManager public tradeManager;
     SimpleBoringVault public boringVault;
 
     // Define types that match UniversalPrivacyHook
     struct InternalTransfer {
         address to;             // User receiving tokens
         address encToken;       // IFHERC20 token address (e.g., eUSDC or eUSDT contract)
-        euint128 encAmount;     // SwapManager loads InEuint128 to euint128 before passing here
+        euint128 encAmount;     // TradeManager loads InEuint128 to euint128 before passing here
     }
 
     struct UserShare {
@@ -72,7 +72,7 @@ contract MockPrivacyHook {
     event UEISubmittedWithProof(bytes32 indexed intentId, address indexed submitter, bytes ctBlob, bytes inputProof);
 
     constructor(address _swapManager) {
-        swapManager = ISwapManager(_swapManager);
+        tradeManager = ITradeManager(_swapManager);
     }
 
     /**
@@ -160,8 +160,8 @@ contract MockPrivacyHook {
             address(this) // Mock pool key
         );
         
-        // Send to SwapManager AVS
-        swapManager.finalizeBatch(currentBatchId, batchData);
+        // Send to TradeManager AVS
+        tradeManager.finalizeBatch(currentBatchId, batchData);
         
         emit BatchFinalized(currentBatchId, batch.intentIds.length);
         
@@ -182,10 +182,10 @@ contract MockPrivacyHook {
         address outputToken,
         UserShare[] calldata userShares
     ) external {
-        require(msg.sender == address(swapManager), "Only SwapManager");
+        require(msg.sender == address(tradeManager), "Only TradeManager");
 
         // For mock purposes, only mark as settled if batch exists in our tracking
-        // This allows tests to call SwapManager.finalizeBatch directly without
+        // This allows tests to call TradeManager.finalizeBatch directly without
         // going through MockPrivacyHook's batch creation flow
         if (batches[batchId].intentIds.length > 0) {
             Batch storage batch = batches[batchId];
@@ -248,8 +248,8 @@ contract MockPrivacyHook {
         require(batch.status == BatchStatus.Collecting, "Batch not collecting");
         require(batch.intentIds.length > 0, "Empty batch");
         
-        // Ensure SwapManager is set
-        require(address(swapManager) != address(0), "SwapManager not set");
+        // Ensure TradeManager is set
+        require(address(tradeManager) != address(0), "TradeManager not set");
         
         // Encode batch data for AVS
         bytes memory batchData = abi.encode(
@@ -257,8 +257,8 @@ contract MockPrivacyHook {
             address(this) // Mock pool key
         );
         
-        // Send to SwapManager AVS - this should succeed now
-        swapManager.finalizeBatch(batchId, batchData);
+        // Send to TradeManager AVS - this should succeed now
+        tradeManager.finalizeBatch(batchId, batchData);
         
         // Mark batch as processing AFTER successful external call
         batch.status = BatchStatus.Processing;

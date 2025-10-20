@@ -196,7 +196,7 @@ async function createOperatorSignature(
  * Process a single UEI trade
  */
 async function processUEITrade(
-    swapManager: ethers.Contract,
+    tradeManager: ethers.Contract,
     intentId: string,
     encodedData: string,
     operatorWallet: ethers.Wallet
@@ -254,7 +254,7 @@ async function processUEITrade(
         console.log(`  Target: ${target}`);
         console.log(`  Calldata length: ${calldata.length} chars`);
 
-        const tx = await swapManager.processUEI(
+        const tx = await tradeManager.processUEI(
             intentId,
             decoder,
             target,
@@ -271,7 +271,7 @@ async function processUEITrade(
         console.log(`  Gas used: ${receipt.gasUsed.toString()}`);
 
         // Check execution result
-        const execution = await swapManager.getUEIExecution(intentId);
+        const execution = await tradeManager.getUEIExecution(intentId);
         console.log("\n📊 Execution Result:");
         console.log(`  Success: ${execution.success}`);
         console.log(`  Executor: ${execution.executor}`);
@@ -294,7 +294,7 @@ async function processUEITrade(
  */
 async function handleBatchFinalized(
     provider: ethers.Provider,
-    swapManager: ethers.Contract,
+    tradeManager: ethers.Contract,
     batchId: string,
     selectedOperators: string[],
     operatorWallet: ethers.Wallet
@@ -320,7 +320,7 @@ async function handleBatchFinalized(
         console.log(`\n✅ This operator IS selected for this batch!`);
 
         // Get batch details
-        const batch = await swapManager.getTradeBatch(batchId);
+        const batch = await tradeManager.getTradeBatch(batchId);
         console.log(`\n📋 Batch contains ${batch.intentIds.length} trades:`);
         batch.intentIds.forEach((id: string, i: number) => {
             console.log(`  ${i + 1}. ${id}`);
@@ -330,9 +330,9 @@ async function handleBatchFinalized(
         // CRITICAL: ctBlob is in events, NOT contract storage!
         console.log(`\n🔍 Fetching TradeSubmitted events for batch ${batchId}...`);
 
-        const filter = swapManager.filters.TradeSubmitted(null, null, batchId);
+        const filter = tradeManager.filters.TradeSubmitted(null, null, batchId);
         const currentBlock = await provider.getBlockNumber();
-        const events = await swapManager.queryFilter(filter, currentBlock - 10000, currentBlock);
+        const events = await tradeManager.queryFilter(filter, currentBlock - 10000, currentBlock);
 
         console.log(`  Found ${events.length} TradeSubmitted events`);
 
@@ -353,7 +353,7 @@ async function handleBatchFinalized(
 
             console.log(`\n📥 Processing trade ${i + 1}/${events.length}...`);
 
-            await processUEITrade(swapManager, intentId, encodedData, operatorWallet);
+            await processUEITrade(tradeManager, intentId, encodedData, operatorWallet);
 
             // Small delay between processing trades
             if (i < events.length - 1) {
@@ -387,19 +387,19 @@ async function startUEIProcessor() {
         const chainId = Number(network.chainId);
         const config = loadDeploymentConfig(chainId);
 
-        SWAP_MANAGER = config.swapManager;
+        SWAP_MANAGER = config.tradeManager;
         BORING_VAULT = config.boringVault || '0x0000000000000000000000000000000000000000';
 
         console.log(`Network: ${config.network} (Chain ID: ${chainId})`);
         console.log("👤 Operator wallet:", operatorWallet.address);
-        console.log("🏦 SwapManager:", SWAP_MANAGER);
+        console.log("🏦 TradeManager:", SWAP_MANAGER);
         console.log("💰 BoringVault:", BORING_VAULT);
 
-        // Load SwapManager ABI
+        // Load TradeManager ABI
         const swapManagerAbi = JSON.parse(
-            fs.readFileSync('./abis/SwapManager.json', 'utf8')
+            fs.readFileSync('./abis/TradeManager.json', 'utf8')
         );
-        const swapManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, operatorWallet);
+        const tradeManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, operatorWallet);
 
         // Initialize CoFHE.js
         await initializeCofhe(operatorWallet);
@@ -414,9 +414,9 @@ async function startUEIProcessor() {
 
         // Query past UEIBatchFinalized events first (last 1000 blocks)
         try {
-            const filter = swapManager.filters.UEIBatchFinalized();
+            const filter = tradeManager.filters.UEIBatchFinalized();
             const fromBlock = Math.max(0, lastProcessedBlock - 1000);
-            const events = await swapManager.queryFilter(filter, fromBlock, lastProcessedBlock);
+            const events = await tradeManager.queryFilter(filter, fromBlock, lastProcessedBlock);
 
             if (events.length > 0) {
                 console.log(`\n📜 Found ${events.length} past UEIBatchFinalized events`);
@@ -430,7 +430,7 @@ async function startUEIProcessor() {
                         processedBatches.add(batchId);
                         await handleBatchFinalized(
                             provider,
-                            swapManager,
+                            tradeManager,
                             batchId,
                             selectedOperators,
                             operatorWallet
@@ -447,7 +447,7 @@ async function startUEIProcessor() {
         }
 
         // Check if operator is admin (can bypass time constraints)
-        const adminAddress = await swapManager.admin();
+        const adminAddress = await tradeManager.admin();
         const isAdmin = adminAddress.toLowerCase() === operatorWallet.address.toLowerCase();
 
         console.log("\n✅ UEI Processor is running...");
@@ -461,8 +461,8 @@ async function startUEIProcessor() {
                 const currentBlock = await provider.getBlockNumber();
 
                 if (currentBlock > lastProcessedBlock) {
-                    const filter = swapManager.filters.UEIBatchFinalized();
-                    const events = await swapManager.queryFilter(
+                    const filter = tradeManager.filters.UEIBatchFinalized();
+                    const events = await tradeManager.queryFilter(
                         filter,
                         lastProcessedBlock + 1,
                         currentBlock
@@ -480,7 +480,7 @@ async function startUEIProcessor() {
 
                             await handleBatchFinalized(
                                 provider,
-                                swapManager,
+                                tradeManager,
                                 batchId,
                                 selectedOperators,
                                 operatorWallet
@@ -503,8 +503,8 @@ async function startUEIProcessor() {
                 console.log("\n⏰ Checking if batch should be finalized...");
 
                 // Get current batch counter and ID
-                const currentCounter = await swapManager.currentBatchCounter();
-                const batchId = await swapManager.batchCounterToBatchId(currentCounter);
+                const currentCounter = await tradeManager.currentBatchCounter();
+                const batchId = await tradeManager.batchCounterToBatchId(currentCounter);
 
                 // Check if batch exists (should not be zero)
                 if (batchId === ethers.ZeroHash) {
@@ -513,7 +513,7 @@ async function startUEIProcessor() {
                 }
 
                 // Get batch details
-                const batch = await swapManager.getTradeBatch(batchId);
+                const batch = await tradeManager.getTradeBatch(batchId);
 
                 // Check if batch is empty
                 if (batch.intentIds.length === 0) {
@@ -542,7 +542,7 @@ async function startUEIProcessor() {
                 console.log(`  🎯 Batch ${batchId} has ${batch.intentIds.length} intent(s), triggering finalization...`);
 
                 // Call finalizeUEIBatch
-                const tx = await swapManager.finalizeUEIBatch({
+                const tx = await tradeManager.finalizeUEIBatch({
                     nonce: await operatorWallet.getNonce()
                 });
 

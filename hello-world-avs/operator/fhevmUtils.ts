@@ -60,12 +60,12 @@
 
 //         console.log(`Decrypting FHEVM handle: ${encryptedHandle}`);
 
-//         // AVS operators are granted permission to decrypt in SwapManager.finalizeBatch
+//         // AVS operators are granted permission to decrypt in TradeManager.finalizeBatch
 //         // They can decrypt the amounts to perform matching
 
 //         // For Sepolia FHEVM, operators with granted permissions can decrypt
 //         // This assumes the operator has been granted permission via FHE.allow()
-//         // The SwapManager contract grants this permission when operators process batches
+//         // The TradeManager contract grants this permission when operators process batches
 
 //         // Generate keypair for the operator to decrypt
 //         const { publicKey, privateKey } = fhevmInstance.generateKeypair();
@@ -135,7 +135,7 @@
 
 // // True batch encryption for multiple amounts (no loops)
 // // @param amounts - Array of plaintext amounts to encrypt
-// // @param userAddress - msg.sender when FHE.fromExternal is called (SwapManager for settlements, user for intents)
+// // @param userAddress - msg.sender when FHE.fromExternal is called (TradeManager for settlements, user for intents)
 // // @param contractAddress - Contract that calls FHE.fromExternal (Hook)
 // export const batchEncryptAmounts = async (
 //     amounts: bigint[],
@@ -154,7 +154,7 @@
 
 //         // Addresses must be explicitly provided to ensure correct context
 //         // contractAddress = contract that calls FHE.fromExternal (Hook)
-//         // userAddress = msg.sender when fromExternal is called (SwapManager for settlements, user wallet for intents)
+//         // userAddress = msg.sender when fromExternal is called (TradeManager for settlements, user wallet for intents)
 //         if (!userAddress || !contractAddress) {
 //             throw new Error("userAddress and contractAddress must be provided for encryption context");
 //         }

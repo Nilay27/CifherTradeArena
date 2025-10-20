@@ -139,12 +139,12 @@ contract DeployUniversalPrivacyHook is Script, DeployPermit2 {
         manager.initialize(key, Constants.SQRT_PRICE_1_1);
         console.log("Pool initialized");
 
-        // Set the SwapManager address (if available from environment)
-        // This should be the deployed SwapManager from hello-world-avs
-        address swapManager = vm.envOr("SWAP_MANAGER", address(0));
-        if (swapManager != address(0)) {
-            hook.setSwapManager(swapManager);
-            console.log("SwapManager set to:", swapManager);
+        // Set the TradeManager address (if available from environment)
+        // This should be the deployed TradeManager from hello-world-avs
+        address tradeManager = vm.envOr("SWAP_MANAGER", address(0));
+        if (tradeManager != address(0)) {
+            hook.setTradeManager(tradeManager);
+            console.log("TradeManager set to:", tradeManager);
         }
 
         // Add initial liquidity

@@ -20,7 +20,7 @@ library SetupDistributionsLib {
     }
 
     function createAVSRewardsSubmissions(
-        address SwapManager,
+        address TradeManager,
         address strategy,
         uint256 numPayments,
         uint256 amountPerPayment,
@@ -48,13 +48,13 @@ library SetupDistributionsLib {
 
             rewardsSubmissions[i] = rewardsSubmission;
         }
-        ECDSAServiceManagerBase(SwapManager).createAVSRewardsSubmission(
+        ECDSAServiceManagerBase(TradeManager).createAVSRewardsSubmission(
             rewardsSubmissions
         );
     }
 
     function createOperatorDirectedAVSRewardsSubmissions(
-        address SwapManager,
+        address TradeManager,
         address[] memory operators,
         address strategy,
         uint256 numPayments,
@@ -99,7 +99,7 @@ library SetupDistributionsLib {
 
             rewardsSubmissions[i] = rewardsSubmission;
         }
-        ECDSAServiceManagerBase(SwapManager).createOperatorDirectedAVSRewardsSubmission(
+        ECDSAServiceManagerBase(TradeManager).createOperatorDirectedAVSRewardsSubmission(
             rewardsSubmissions
         );
     }

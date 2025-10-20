@@ -4,12 +4,12 @@ pragma solidity ^0.8.12;
 import {Test} from "forge-std/Test.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 import {FHE, InEaddress, InEuint32, InEuint128, euint128, euint256} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
-import {SwapManager, InternalTransferInput, IUniversalPrivacyHook} from "../src/SwapManager.sol";
-import {ISwapManager, DynamicInE} from "../src/ISwapManager.sol";
+import {TradeManager, InternalTransferInput, IUniversalPrivacyHook} from "../src/TradeManager.sol";
+import {ITradeManager, DynamicInE} from "../src/ITradeManager.sol";
 import {MockPrivacyHook} from "../src/MockPrivacyHook.sol";
 
-contract SwapManagerBatchTest is Test, CoFheTest {
-    SwapManager public swapManager;
+contract TradeManagerBatchTest is Test, CoFheTest {
+    TradeManager public tradeManager;
     MockPrivacyHook public mockHook;
 
     address owner = address(0x1);
@@ -22,7 +22,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
     function setUp() public {
         // Note: Constructor sets admin, no need for initialize() in tests
-        swapManager = new SwapManager(
+        tradeManager = new TradeManager(
             address(0x100), // avsDirectory
             address(0x101), // stakeRegistry
             address(0x102), // rewardsCoordinator
@@ -33,27 +33,27 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         );
 
         // Deploy MockPrivacyHook
-        mockHook = new MockPrivacyHook(address(swapManager));
+        mockHook = new MockPrivacyHook(address(tradeManager));
 
         // Authorize the hook
         vm.prank(owner);
-        swapManager.authorizeHook(address(mockHook));
+        tradeManager.authorizeHook(address(mockHook));
 
         // Register operators
         vm.prank(operator1);
-        swapManager.registerOperatorForBatches();
+        tradeManager.registerOperatorForBatches();
 
         vm.prank(operator2);
-        swapManager.registerOperatorForBatches();
+        tradeManager.registerOperatorForBatches();
 
         vm.prank(operator3);
-        swapManager.registerOperatorForBatches();
+        tradeManager.registerOperatorForBatches();
     }
 
-    // Helper function to create FHE encrypted value and grant SwapManager permission
-    function createEncryptedForSwapManager(uint128 value) internal returns (euint128) {
+    // Helper function to create FHE encrypted value and grant TradeManager permission
+    function createEncryptedForTradeManager(uint128 value) internal returns (euint128) {
         euint128 encrypted = FHE.asEuint128(value);
-        FHE.allow(encrypted, address(swapManager));
+        FHE.allow(encrypted, address(tradeManager));
         return encrypted;
     }
 
@@ -67,9 +67,9 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create encrypted intent data with proper FHE handles
-        // Use helper to create euint128 and grant SwapManager permission (mimics Hook behavior)
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
-        euint128 enc500 = createEncryptedForSwapManager(500);
+        // Use helper to create euint128 and grant TradeManager permission (mimics Hook behavior)
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
+        euint128 enc500 = createEncryptedForTradeManager(500);
 
         bytes[] memory encryptedIntents = new bytes[](2);
         encryptedIntents[0] = abi.encode(
@@ -99,11 +99,11 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Finalize batch
         vm.prank(address(mockHook));
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
 
         // Check batch status
-        ISwapManager.Batch memory batch = swapManager.getBatch(batchId);
-        assertEq(uint(batch.status), uint(ISwapManager.BatchStatus.Processing));
+        ITradeManager.Batch memory batch = tradeManager.getBatch(batchId);
+        assertEq(uint(batch.status), uint(ITradeManager.BatchStatus.Processing));
         assertEq(batch.intentIds.length, 2);
         assertEq(batch.hook, address(mockHook));
         assertEq(batch.poolId, poolId);
@@ -116,7 +116,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         // Try to finalize from unauthorized address
         vm.prank(address(0x999));
         vm.expectRevert("Unauthorized hook");
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
     }
 
     function testBatchFinalizationRevertsIfInvalidStatus() public {
@@ -127,7 +127,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handle
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
 
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
@@ -148,35 +148,35 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         );
 
         vm.prank(address(mockHook));
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
 
         // Try to finalize again - should revert
         vm.prank(address(mockHook));
         vm.expectRevert("Invalid batch status");
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
     }
 
     function testOperatorRegistration() public {
         address newOperator = address(0x99);
 
-        assertFalse(swapManager.isOperatorRegistered(newOperator));
+        assertFalse(tradeManager.isOperatorRegistered(newOperator));
 
         vm.prank(newOperator);
-        swapManager.registerOperatorForBatches();
+        tradeManager.registerOperatorForBatches();
 
-        assertTrue(swapManager.isOperatorRegistered(newOperator));
+        assertTrue(tradeManager.isOperatorRegistered(newOperator));
     }
 
     function testGetOperatorCount() public {
         // Already registered 3 operators in setUp
-        assertEq(swapManager.getOperatorCount(), 3);
+        assertEq(tradeManager.getOperatorCount(), 3);
 
         // Register one more
         address newOperator = address(0x99);
         vm.prank(newOperator);
-        swapManager.registerOperatorForBatches();
+        tradeManager.registerOperatorForBatches();
 
-        assertEq(swapManager.getOperatorCount(), 4);
+        assertEq(tradeManager.getOperatorCount(), 4);
     }
 
     function testOperatorSelectionForBatch() public {
@@ -187,7 +187,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handle
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
 
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
@@ -208,13 +208,13 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         );
 
         vm.prank(address(mockHook));
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
 
         // Check that an operator was selected
         // With 3 operators registered, at least one should be selected
-        bool hasSelectedOperator = swapManager.isOperatorSelectedForBatch(batchId, operator1) ||
-                                   swapManager.isOperatorSelectedForBatch(batchId, operator2) ||
-                                   swapManager.isOperatorSelectedForBatch(batchId, operator3);
+        bool hasSelectedOperator = tradeManager.isOperatorSelectedForBatch(batchId, operator1) ||
+                                   tradeManager.isOperatorSelectedForBatch(batchId, operator2) ||
+                                   tradeManager.isOperatorSelectedForBatch(batchId, operator3);
 
         assertTrue(hasSelectedOperator, "No operator was selected for batch");
     }
@@ -224,7 +224,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Authorize new hook
         vm.prank(owner);
-        swapManager.authorizeHook(newHook);
+        tradeManager.authorizeHook(newHook);
 
         // Should be able to finalize batch
         bytes32 batchId = keccak256("batch1");
@@ -233,7 +233,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handle
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
 
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
@@ -254,17 +254,17 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         );
 
         vm.prank(newHook);
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
 
         // Should succeed
-        ISwapManager.Batch memory batch = swapManager.getBatch(batchId);
+        ITradeManager.Batch memory batch = tradeManager.getBatch(batchId);
         assertEq(batch.hook, newHook);
     }
 
     function testHookRevocation() public {
         // Revoke mockHook
         vm.prank(owner);
-        swapManager.revokeHook(address(mockHook));
+        tradeManager.revokeHook(address(mockHook));
 
         // Should not be able to finalize batch
         bytes32 batchId = keccak256("batch1");
@@ -272,7 +272,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         vm.prank(address(mockHook));
         vm.expectRevert("Unauthorized hook");
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
     }
 
     function testBatchIdMismatch() public {
@@ -283,7 +283,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handle
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
 
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
@@ -306,7 +306,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         vm.prank(address(mockHook));
         vm.expectRevert("Batch ID mismatch");
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
     }
 
     function testHookAddressMismatch() public {
@@ -316,7 +316,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handle
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
 
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
@@ -339,7 +339,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         vm.prank(address(mockHook));
         vm.expectRevert("Hook address mismatch");
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
     }
 
     // ========== submitBatchSettlement Tests ==========
@@ -353,8 +353,8 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handles
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
-        euint128 enc500 = createEncryptedForSwapManager(500);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
+        euint128 enc500 = createEncryptedForTradeManager(500);
 
         bytes[] memory encryptedIntents = new bytes[](2);
         encryptedIntents[0] = abi.encode(
@@ -384,17 +384,17 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Finalize batch as hook
         vm.prank(address(mockHook));
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
 
         // Get selected operator
         address selectedOp = operator1;
-        if (!swapManager.isOperatorSelectedForBatch(batchId, operator1)) {
+        if (!tradeManager.isOperatorSelectedForBatch(batchId, operator1)) {
             selectedOp = operator2;
         }
-        if (!swapManager.isOperatorSelectedForBatch(batchId, selectedOp)) {
+        if (!tradeManager.isOperatorSelectedForBatch(batchId, selectedOp)) {
             selectedOp = operator3;
         }
-        assertTrue(swapManager.isOperatorSelectedForBatch(batchId, selectedOp), "No operator selected");
+        assertTrue(tradeManager.isOperatorSelectedForBatch(batchId, selectedOp), "No operator selected");
 
         // Find operator private key
         uint256 operatorPk = selectedOp == operator1 ? 2 : (selectedOp == operator2 ? 3 : 4);
@@ -439,7 +439,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Submit settlement as operator
         vm.startPrank(selectedOp);
-        swapManager.submitBatchSettlement(
+        tradeManager.submitBatchSettlement(
             batchId,
             internalTransfers,
             50e6,           // netAmountIn
@@ -452,8 +452,8 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         vm.stopPrank();
 
         // Verify batch is settled
-        ISwapManager.Batch memory batch = swapManager.getBatch(batchId);
-        assertEq(uint(batch.status), uint(ISwapManager.BatchStatus.Settled));
+        ITradeManager.Batch memory batch = tradeManager.getBatch(batchId);
+        assertEq(uint(batch.status), uint(ITradeManager.BatchStatus.Settled));
     }
 
     function testSubmitBatchSettlement_RevertNotOperator() public {
@@ -466,7 +466,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         // Try to submit from non-operator
         vm.prank(user1);
         vm.expectRevert("Operator must be the caller");
-        swapManager.submitBatchSettlement(
+        tradeManager.submitBatchSettlement(
             batchId,
             internalTransfers,
             0,
@@ -488,7 +488,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         // Try to submit without batch being in Processing state
         vm.prank(operator1);
         vm.expectRevert("Batch not processing");
-        swapManager.submitBatchSettlement(
+        tradeManager.submitBatchSettlement(
             batchId,
             internalTransfers,
             0,
@@ -508,7 +508,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         bytes32 poolId = keccak256("pool1");
 
         // Create proper FHE handle
-        euint128 enc1000 = createEncryptedForSwapManager(1000);
+        euint128 enc1000 = createEncryptedForTradeManager(1000);
 
         bytes[] memory encryptedIntents = new bytes[](1);
         encryptedIntents[0] = abi.encode(
@@ -529,7 +529,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         );
 
         vm.prank(address(mockHook));
-        swapManager.finalizeBatch(batchId, batchData);
+        tradeManager.finalizeBatch(batchId, batchData);
 
         // Prepare settlement with insufficient signatures (empty array)
         InternalTransferInput[] memory internalTransfers = new InternalTransferInput[](0);
@@ -538,7 +538,7 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         vm.prank(operator1);
         vm.expectRevert("Insufficient signatures");
-        swapManager.submitBatchSettlement(
+        tradeManager.submitBatchSettlement(
             batchId,
             internalTransfers,
             0,
@@ -563,16 +563,16 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Users submit directly (not hooks)
         vm.prank(user1);
-        bytes32 intentId = swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
+        bytes32 intentId = tradeManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
 
         // Verify intent was created
         assertTrue(intentId != bytes32(0));
 
         // Get the task
-        ISwapManager.UEITask memory task = swapManager.getUEITask(intentId);
+        ITradeManager.UEITask memory task = tradeManager.getUEITask(intentId);
         assertEq(task.submitter, user1);
         assertEq(task.deadline, deadline);
-        assertEq(uint(task.status), uint(ISwapManager.UEIStatus.Pending));
+        assertEq(uint(task.status), uint(ITradeManager.UEIStatus.Pending));
     }
 
     function testSubmitUEIWithTransferFunction() public {
@@ -612,23 +612,23 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Submit UEI
         vm.prank(user1);
-        bytes32 intentId = swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
+        bytes32 intentId = tradeManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
 
         // Verify intent was created
         assertTrue(intentId != bytes32(0));
 
         // Get the task
-        ISwapManager.UEITask memory task = swapManager.getUEITask(intentId);
+        ITradeManager.UEITask memory task = tradeManager.getUEITask(intentId);
         assertEq(task.submitter, user1);
         assertEq(task.deadline, deadline);
-        assertEq(uint(task.status), uint(ISwapManager.UEIStatus.Pending));
+        assertEq(uint(task.status), uint(ITradeManager.UEIStatus.Pending));
 
         // Finalize batch to grant operator permissions
         vm.warp(block.timestamp + 11 minutes);
-        swapManager.finalizeUEIBatch();
+        tradeManager.finalizeUEIBatch();
 
         // Verify batch was finalized
-        ISwapManager.TradeBatch memory batch = swapManager.getTradeBatch(task.batchId);
+        ITradeManager.TradeBatch memory batch = tradeManager.getTradeBatch(task.batchId);
         assertTrue(batch.finalized);
         assertEq(batch.intentIds.length, 1);
         assertEq(batch.intentIds[0], intentId);
@@ -650,15 +650,15 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         uint256 deadline = block.timestamp + 1 hours;
 
         vm.prank(user1);
-        bytes32 intentId = swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
+        bytes32 intentId = tradeManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, deadline);
 
         // Finalize the batch first to select operators
         vm.warp(block.timestamp + 11 minutes); // Past MAX_BATCH_IDLE
-        swapManager.finalizeUEIBatch();
+        tradeManager.finalizeUEIBatch();
 
         // Get selected operators from the batch
-        ISwapManager.UEITask memory task = swapManager.getUEITask(intentId);
-        ISwapManager.TradeBatch memory batch = swapManager.getTradeBatch(task.batchId);
+        ITradeManager.UEITask memory task = tradeManager.getUEITask(intentId);
+        ITradeManager.TradeBatch memory batch = tradeManager.getTradeBatch(task.batchId);
         address selectedOp = batch.selectedOperators[0];
 
         // Find the private key for the selected operator
@@ -685,10 +685,10 @@ contract SwapManagerBatchTest is Test, CoFheTest {
 
         // Process UEI from the selected operator
         vm.prank(selectedOp);
-        swapManager.processUEI(intentId, decoder, target, reconstructedData, signatures);
+        tradeManager.processUEI(intentId, decoder, target, reconstructedData, signatures);
 
         // Verify execution
-        ISwapManager.UEIExecution memory execution = swapManager.getUEIExecution(intentId);
+        ITradeManager.UEIExecution memory execution = tradeManager.getUEIExecution(intentId);
         assertEq(execution.decoder, decoder);
         assertEq(execution.target, target);
         assertEq(execution.executor, selectedOp);
@@ -702,17 +702,17 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         DynamicInE[] memory encArgs = new DynamicInE[](0);
 
         vm.prank(user1);
-        bytes32 intentId = swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, block.timestamp + 1 hours);
+        bytes32 intentId = tradeManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, block.timestamp + 1 hours);
 
         // Finalize batch to select operators
         vm.warp(block.timestamp + 11 minutes);
-        swapManager.finalizeUEIBatch();
+        tradeManager.finalizeUEIBatch();
 
         // Try to process from non-selected operator
         address notSelectedOperator = address(0x999);
         vm.prank(notSelectedOperator);
         vm.expectRevert("Operator must be the caller");
-        swapManager.processUEI(intentId, address(0x100), address(0x200), "", new bytes[](0));
+        tradeManager.processUEI(intentId, address(0x100), address(0x200), "", new bytes[](0));
     }
 
     function testRejectUint256Type() public {
@@ -734,6 +734,6 @@ contract SwapManagerBatchTest is Test, CoFheTest {
         // Should revert with explicit error
         vm.prank(user1);
         vm.expectRevert("DynamicFHE: euint256 (utype 8) is deprecated and not supported");
-        swapManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, block.timestamp + 1 hours);
+        tradeManager.submitEncryptedUEI(encDecoder, encTarget, encSelector, encArgs, block.timestamp + 1 hours);
     }
 }

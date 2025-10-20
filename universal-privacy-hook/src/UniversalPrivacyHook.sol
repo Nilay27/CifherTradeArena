@@ -35,7 +35,7 @@ import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockC
 // Privacy Components
 import {HybridFHERC20} from "./HybridFHERC20.sol";
 import {IFHERC20} from "./interfaces/IFHERC20.sol";
-import {ISwapManager} from "./interfaces/ISwapManager.sol";
+import {ITradeManager} from "./interfaces/ITradeManager.sol";
 
 // Token & Security
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -134,8 +134,8 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     /// @dev Batch storage
     mapping(bytes32 => Batch) public batches;
 
-    /// @dev SwapManager address for AVS integration
-    address public swapManager;
+    /// @dev TradeManager address for AVS integration
+    address public tradeManager;
 
     // =============================================================
     //                        CONSTRUCTOR
@@ -170,12 +170,12 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     }
 
     /**
-     * @dev Set the SwapManager address (admin only)
-     * @param _swapManager Address of the AVS SwapManager contract
+     * @dev Set the TradeManager address (admin only)
+     * @param _swapManager Address of the AVS TradeManager contract
      */
-    function setSwapManager(address _swapManager) external onlyAdmin {
+    function setTradeManager(address _swapManager) external onlyAdmin {
         require(_swapManager != address(0), "Invalid address");
-        swapManager = _swapManager;
+        tradeManager = _swapManager;
     }
 
     // =============================================================
@@ -462,11 +462,11 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
                 euint128.unwrap(intent.encAmount), // Pass the encrypted handle
                 intent.deadline
             );
-            FHE.allowTransient(intent.encAmount, swapManager);
+            FHE.allowTransient(intent.encAmount, tradeManager);
         }
 
-        // Submit to AVS SwapManager
-        if (swapManager != address(0)) {
+        // Submit to AVS TradeManager
+        if (tradeManager != address(0)) {
             bytes memory batchData = abi.encode(
                 batchId,
                 batch.intentIds,
@@ -475,7 +475,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
                 encryptedIntents
             );
 
-            ISwapManager(swapManager).finalizeBatch(batchId, batchData);
+            ITradeManager(tradeManager).finalizeBatch(batchId, batchData);
         }
 
         // Start new batch for the pool
@@ -489,7 +489,7 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
     struct InternalTransfer {
         address to;             // User receiving tokens
         address encToken;       // IFHERC20 token address (e.g., eUSDC or eUSDT contract)
-        euint128 encAmount;     // SwapManager loads InEuint128 to euint128 before passing here
+        euint128 encAmount;     // TradeManager loads InEuint128 to euint128 before passing here
     }
 
     struct UserShare {
@@ -520,9 +520,9 @@ contract UniversalPrivacyHook is BaseHook, IUnlockCallback, ReentrancyGuardTrans
         address outputToken,
         UserShare[] calldata userShares
     ) external {
-        // TODO: Add onlySwapManager modifier once SwapManager interface is added
-        require(swapManager != address(0), "SwapManager not set");
-        require(msg.sender == swapManager, "Only SwapManager");
+        // TODO: Add onlyTradeManager modifier once TradeManager interface is added
+        require(tradeManager != address(0), "TradeManager not set");
+        require(msg.sender == tradeManager, "Only TradeManager");
 
         Batch storage batch = batches[batchId];
         require(batch.finalized, "Batch not finalized");

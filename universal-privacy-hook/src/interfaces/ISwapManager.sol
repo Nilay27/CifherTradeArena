@@ -4,10 +4,10 @@ pragma solidity ^0.8.24;
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 /**
- * @title ISwapManager
- * @dev Interface for AVS SwapManager that handles batch processing
+ * @title ITradeManager
+ * @dev Interface for AVS TradeManager that handles batch processing
  */
-interface ISwapManager {
+interface ITradeManager {
     /**
      * @dev Submit a batch of encrypted intents for processing
      * @param batchId Unique identifier for the batch

@@ -9,7 +9,7 @@ import {console2} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {ECDSAStakeRegistry} from "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
-import {SwapManager} from "../../src/SwapManager.sol";
+import {TradeManager} from "../../src/TradeManager.sol";
 import {IDelegationManager} from "@eigenlayer/contracts/interfaces/IDelegationManager.sol";
 import {IECDSAStakeRegistryTypes} from
     "@eigenlayer-middleware/src/interfaces/IECDSAStakeRegistry.sol";
@@ -17,7 +17,7 @@ import {UpgradeableProxyLib} from "./UpgradeableProxyLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./CoreDeploymentParsingLib.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-library SwapManagerDeploymentLib {
+library TradeManagerDeploymentLib {
     using stdJson for *;
     using Strings for *;
     using UpgradeableProxyLib for address;
@@ -25,7 +25,7 @@ library SwapManagerDeploymentLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     struct DeploymentData {
-        address SwapManager;
+        address TradeManager;
         address stakeRegistry;
         address strategy;
         address token;
@@ -49,7 +49,7 @@ library SwapManagerDeploymentLib {
 
         {
             // First, deploy upgradeable proxy contracts that will point to the implementations.
-            result.SwapManager = UpgradeableProxyLib.setUpEmptyProxy(proxyAdmin);
+            result.TradeManager = UpgradeableProxyLib.setUpEmptyProxy(proxyAdmin);
             result.stakeRegistry = UpgradeableProxyLib.setUpEmptyProxy(proxyAdmin);
         }
         deployAndUpgradeStakeRegistryImpl(result, core, quorum);
@@ -67,7 +67,7 @@ library SwapManagerDeploymentLib {
             address(new ECDSAStakeRegistry(IDelegationManager(core.delegationManager)));
 
         bytes memory upgradeCall = abi.encodeCall(
-            ECDSAStakeRegistry.initialize, (deployment.SwapManager, 0, quorum)
+            ECDSAStakeRegistry.initialize, (deployment.TradeManager, 0, quorum)
         );
         UpgradeableProxyLib.upgradeAndCall(deployment.stakeRegistry, stakeRegistryImpl, upgradeCall);
     }
@@ -78,9 +78,9 @@ library SwapManagerDeploymentLib {
         address owner,
         address rewardsInitiator
     ) private {
-        address swapManagerProxy = deployment.SwapManager;
-        address SwapManagerImpl = address(
-            new SwapManager(
+        address swapManagerProxy = deployment.TradeManager;
+        address TradeManagerImpl = address(
+            new TradeManager(
                 core.avsDirectory,
                 deployment.stakeRegistry,
                 core.rewardsCoordinator,
@@ -92,10 +92,10 @@ library SwapManagerDeploymentLib {
         );
 
         bytes memory upgradeCall =
-            abi.encodeCall(SwapManager.initialize, (owner, rewardsInitiator));
+            abi.encodeCall(TradeManager.initialize, (owner, rewardsInitiator));
 
         UpgradeableProxyLib.upgradeAndCall(
-            swapManagerProxy, SwapManagerImpl, upgradeCall
+            swapManagerProxy, TradeManagerImpl, upgradeCall
         );
     }
 
@@ -111,13 +111,13 @@ library SwapManagerDeploymentLib {
     ) internal view returns (DeploymentData memory) {
         string memory fileName = string.concat(directoryPath, vm.toString(chainId), ".json");
 
-        require(vm.exists(fileName), "SwapManagerDeployment: Deployment file does not exist");
+        require(vm.exists(fileName), "TradeManagerDeployment: Deployment file does not exist");
 
         string memory json = vm.readFile(fileName);
 
         DeploymentData memory data;
         /// TODO: 2 Step for reading deployment json.  Read to the core and the AVS data
-        data.SwapManager = json.readAddress(".addresses.SwapManager");
+        data.TradeManager = json.readAddress(".addresses.TradeManager");
         data.stakeRegistry = json.readAddress(".addresses.stakeRegistry");
         data.strategy = json.readAddress(".addresses.strategy");
         data.token = json.readAddress(".addresses.token");
@@ -138,7 +138,7 @@ library SwapManagerDeploymentLib {
         DeploymentData memory data
     ) internal {
         address proxyAdmin =
-            address(UpgradeableProxyLib.getProxyAdmin(data.SwapManager));
+            address(UpgradeableProxyLib.getProxyAdmin(data.TradeManager));
 
         string memory deploymentData = _generateDeploymentJson(data, proxyAdmin);
 
@@ -158,7 +158,7 @@ library SwapManagerDeploymentLib {
         string memory pathToFile = string.concat(directoryPath, fileName);
 
         require(
-            vm.exists(pathToFile), "SwapManagerDeployment: Deployment Config file does not exist"
+            vm.exists(pathToFile), "TradeManagerDeployment: Deployment Config file does not exist"
         );
 
         string memory json = vm.readFile(pathToFile);
@@ -201,10 +201,10 @@ library SwapManagerDeploymentLib {
         return string.concat(
             '{"proxyAdmin":"',
             proxyAdmin.toHexString(),
-            '","SwapManager":"',
-            data.SwapManager.toHexString(),
-            '","SwapManagerImpl":"',
-            data.SwapManager.getImplementation().toHexString(),
+            '","TradeManager":"',
+            data.TradeManager.toHexString(),
+            '","TradeManagerImpl":"',
+            data.TradeManager.getImplementation().toHexString(),
             '","stakeRegistry":"',
             data.stakeRegistry.toHexString(),
             '","stakeRegistryImpl":"',

@@ -2,7 +2,7 @@
 /**
 
 ```solidity
-library ISwapManager {
+library ITradeManager {
     struct Task { string name; uint32 taskCreatedBlock; }
 }
 ```*/
@@ -13,7 +13,7 @@ library ISwapManager {
     clippy::style,
     clippy::empty_structs_with_brackets
 )]
-pub mod ISwapManager {
+pub mod ITradeManager {
     use super::*;
     use alloy::sol_types as alloy_sol_types;
     /**```solidity
@@ -211,9 +211,9 @@ pub mod ISwapManager {
         }
     };
     use alloy::contract as alloy_contract;
-    /**Creates a new wrapper around an on-chain [`ISwapManager`](self) contract instance.
+    /**Creates a new wrapper around an on-chain [`ITradeManager`](self) contract instance.
 
-    See the [wrapper's documentation](`ISwapManagerInstance`) for more details.*/
+    See the [wrapper's documentation](`ITradeManagerInstance`) for more details.*/
     #[inline]
     pub const fn new<
         T: alloy_contract::private::Transport + ::core::clone::Clone,
@@ -222,13 +222,13 @@ pub mod ISwapManager {
     >(
         address: alloy_sol_types::private::Address,
         provider: P,
-    ) -> ISwapManagerInstance<T, P, N> {
-        ISwapManagerInstance::<T, P, N>::new(address, provider)
+    ) -> ITradeManagerInstance<T, P, N> {
+        ITradeManagerInstance::<T, P, N>::new(address, provider)
     }
-    /**A [`ISwapManager`](self) instance.
+    /**A [`ITradeManager`](self) instance.
 
     Contains type-safe methods for interacting with an on-chain instance of the
-    [`ISwapManager`](self) contract located at a given `address`, using a given
+    [`ITradeManager`](self) contract located at a given `address`, using a given
     provider `P`.
 
     If the contract bytecode is available (see the [`sol!`](alloy_sol_types::sol!)
@@ -237,16 +237,16 @@ pub mod ISwapManager {
 
     See the [module-level documentation](self) for all the available methods.*/
     #[derive(Clone)]
-    pub struct ISwapManagerInstance<T, P, N = alloy_contract::private::Ethereum> {
+    pub struct ITradeManagerInstance<T, P, N = alloy_contract::private::Ethereum> {
         address: alloy_sol_types::private::Address,
         provider: P,
         _network_transport: ::core::marker::PhantomData<(N, T)>,
     }
     #[automatically_derived]
-    impl<T, P, N> ::core::fmt::Debug for ISwapManagerInstance<T, P, N> {
+    impl<T, P, N> ::core::fmt::Debug for ITradeManagerInstance<T, P, N> {
         #[inline]
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-            f.debug_tuple("ISwapManagerInstance")
+            f.debug_tuple("ITradeManagerInstance")
                 .field(&self.address)
                 .finish()
         }
@@ -257,11 +257,11 @@ pub mod ISwapManager {
             T: alloy_contract::private::Transport + ::core::clone::Clone,
             P: alloy_contract::private::Provider<T, N>,
             N: alloy_contract::private::Network,
-        > ISwapManagerInstance<T, P, N>
+        > ITradeManagerInstance<T, P, N>
     {
-        /**Creates a new wrapper around an on-chain [`ISwapManager`](self) contract instance.
+        /**Creates a new wrapper around an on-chain [`ITradeManager`](self) contract instance.
 
-        See the [wrapper's documentation](`ISwapManagerInstance`) for more details.*/
+        See the [wrapper's documentation](`ITradeManagerInstance`) for more details.*/
         #[inline]
         pub const fn new(address: alloy_sol_types::private::Address, provider: P) -> Self {
             Self {
@@ -291,11 +291,11 @@ pub mod ISwapManager {
             &self.provider
         }
     }
-    impl<T, P: ::core::clone::Clone, N> ISwapManagerInstance<T, &P, N> {
+    impl<T, P: ::core::clone::Clone, N> ITradeManagerInstance<T, &P, N> {
         /// Clones the provider and returns a new instance with the cloned provider.
         #[inline]
-        pub fn with_cloned_provider(self) -> ISwapManagerInstance<T, P, N> {
-            ISwapManagerInstance {
+        pub fn with_cloned_provider(self) -> ITradeManagerInstance<T, P, N> {
+            ITradeManagerInstance {
                 address: self.address,
                 provider: ::core::clone::Clone::clone(&self.provider),
                 _network_transport: ::core::marker::PhantomData,
@@ -308,7 +308,7 @@ pub mod ISwapManager {
             T: alloy_contract::private::Transport + ::core::clone::Clone,
             P: alloy_contract::private::Provider<T, N>,
             N: alloy_contract::private::Network,
-        > ISwapManagerInstance<T, P, N>
+        > ITradeManagerInstance<T, P, N>
     {
         /// Creates a new call builder using this contract instance's provider and address.
         ///
@@ -327,7 +327,7 @@ pub mod ISwapManager {
             T: alloy_contract::private::Transport + ::core::clone::Clone,
             P: alloy_contract::private::Provider<T, N>,
             N: alloy_contract::private::Network,
-        > ISwapManagerInstance<T, P, N>
+        > ITradeManagerInstance<T, P, N>
     {
         /// Creates a new event filter using this contract instance's provider and address.
         ///
@@ -1851,7 +1851,7 @@ pub mod ISignatureUtilsMixinTypes {
 
 Generated by the following Solidity interface...
 ```solidity
-library ISwapManager {
+library ITradeManager {
     struct Task {
         string name;
         uint32 taskCreatedBlock;
@@ -1892,17 +1892,17 @@ library ISignatureUtilsMixinTypes {
     }
 }
 
-interface SwapManager {
+interface TradeManager {
     error DelayPeriodNotPassed();
     error OnlyRegistryCoordinator();
     error OnlyRewardsInitiator();
     error OnlyStakeRegistry();
 
     event Initialized(uint8 version);
-    event NewTaskCreated(uint32 indexed taskIndex, ISwapManager.Task task);
+    event NewTaskCreated(uint32 indexed taskIndex, ITradeManager.Task task);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event RewardsInitiatorUpdated(address prevRewardsInitiator, address newRewardsInitiator);
-    event TaskResponded(uint32 indexed taskIndex, ISwapManager.Task task, address operator);
+    event TaskResponded(uint32 indexed taskIndex, ITradeManager.Task task, address operator);
 
     constructor(address _avsDirectory, address _stakeRegistry, address _rewardsCoordinator, address _delegationManager, address _allocationManager, uint32 _maxResponseIntervalBlocks);
 
@@ -1913,7 +1913,7 @@ interface SwapManager {
     function allocationManager() external view returns (address);
     function avsDirectory() external view returns (address);
     function createAVSRewardsSubmission(IRewardsCoordinatorTypes.RewardsSubmission[] memory rewardsSubmissions) external;
-    function createNewTask(string memory name) external returns (ISwapManager.Task memory);
+    function createNewTask(string memory name) external returns (ITradeManager.Task memory);
     function createOperatorDirectedAVSRewardsSubmission(IRewardsCoordinatorTypes.OperatorDirectedRewardsSubmission[] memory operatorDirectedRewardsSubmissions) external;
     function deregisterOperatorFromAVS(address operator) external;
     function deregisterOperatorFromOperatorSets(address operator, uint32[] memory operatorSetIds) external;
@@ -1927,13 +1927,13 @@ interface SwapManager {
     function removeAppointee(address appointee, address target, bytes4 selector) external;
     function removePendingAdmin(address pendingAdmin) external;
     function renounceOwnership() external;
-    function respondToTask(ISwapManager.Task memory task, uint32 referenceTaskIndex, bytes memory signature) external;
+    function respondToTask(ITradeManager.Task memory task, uint32 referenceTaskIndex, bytes memory signature) external;
     function rewardsInitiator() external view returns (address);
     function setAVSRegistrar(address registrar) external;
     function setAppointee(address appointee, address target, bytes4 selector) external;
     function setClaimerFor(address claimer) external;
     function setRewardsInitiator(address newRewardsInitiator) external;
-    function slashOperator(ISwapManager.Task memory task, uint32 referenceTaskIndex, address operator) external;
+    function slashOperator(ITradeManager.Task memory task, uint32 referenceTaskIndex, address operator) external;
     function stakeRegistry() external view returns (address);
     function taskWasResponded(uint32) external view returns (bool);
     function transferOwnership(address newOwner) external;
@@ -2141,7 +2141,7 @@ interface SwapManager {
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ISwapManager.Task",
+        "internalType": "struct ITradeManager.Task",
         "components": [
           {
             "name": "name",
@@ -2432,7 +2432,7 @@ interface SwapManager {
       {
         "name": "task",
         "type": "tuple",
-        "internalType": "struct ISwapManager.Task",
+        "internalType": "struct ITradeManager.Task",
         "components": [
           {
             "name": "name",
@@ -2542,7 +2542,7 @@ interface SwapManager {
       {
         "name": "task",
         "type": "tuple",
-        "internalType": "struct ISwapManager.Task",
+        "internalType": "struct ITradeManager.Task",
         "components": [
           {
             "name": "name",
@@ -2655,7 +2655,7 @@ interface SwapManager {
         "name": "task",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ISwapManager.Task",
+        "internalType": "struct ITradeManager.Task",
         "components": [
           {
             "name": "name",
@@ -2724,7 +2724,7 @@ interface SwapManager {
         "name": "task",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ISwapManager.Task",
+        "internalType": "struct ITradeManager.Task",
         "components": [
           {
             "name": "name",
@@ -2776,7 +2776,7 @@ interface SwapManager {
     clippy::style,
     clippy::empty_structs_with_brackets
 )]
-pub mod SwapManager {
+pub mod TradeManager {
     use super::*;
     use alloy::sol_types as alloy_sol_types;
     /// The creation / init bytecode of the contract.
@@ -3139,7 +3139,7 @@ pub mod SwapManager {
     };
     /**Event with signature `NewTaskCreated(uint32,(string,uint32))` and selector `0x58180a6a0403a63c2b5ce4b85d129d46a80d37851b2216bd0a98b59e7309b847`.
     ```solidity
-    event NewTaskCreated(uint32 indexed taskIndex, ISwapManager.Task task);
+    event NewTaskCreated(uint32 indexed taskIndex, ITradeManager.Task task);
     ```*/
     #[allow(
         non_camel_case_types,
@@ -3152,7 +3152,7 @@ pub mod SwapManager {
         #[allow(missing_docs)]
         pub taskIndex: u32,
         #[allow(missing_docs)]
-        pub task: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+        pub task: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
     }
     #[allow(
         non_camel_case_types,
@@ -3164,7 +3164,7 @@ pub mod SwapManager {
         use alloy::sol_types as alloy_sol_types;
         #[automatically_derived]
         impl alloy_sol_types::SolEvent for NewTaskCreated {
-            type DataTuple<'a> = (ISwapManager::Task,);
+            type DataTuple<'a> = (ITradeManager::Task,);
             type DataToken<'a> = <Self::DataTuple<'a> as alloy_sol_types::SolType>::Token<'a>;
             type TopicList = (
                 alloy_sol_types::sol_data::FixedBytes<32>,
@@ -3205,7 +3205,7 @@ pub mod SwapManager {
             #[inline]
             fn tokenize_body(&self) -> Self::DataToken<'_> {
                 (
-                    <ISwapManager::Task as alloy_sol_types::SolType>::tokenize(
+                    <ITradeManager::Task as alloy_sol_types::SolType>::tokenize(
                         &self.task,
                     ),
                 )
@@ -3470,7 +3470,7 @@ pub mod SwapManager {
     };
     /**Event with signature `TaskResponded(uint32,(string,uint32),address)` and selector `0x8eb2d2fcccf5801e10ff58cd73e8781ba923122963789378771f03c1148b023e`.
     ```solidity
-    event TaskResponded(uint32 indexed taskIndex, ISwapManager.Task task, address operator);
+    event TaskResponded(uint32 indexed taskIndex, ITradeManager.Task task, address operator);
     ```*/
     #[allow(
         non_camel_case_types,
@@ -3483,7 +3483,7 @@ pub mod SwapManager {
         #[allow(missing_docs)]
         pub taskIndex: u32,
         #[allow(missing_docs)]
-        pub task: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+        pub task: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
         #[allow(missing_docs)]
         pub operator: alloy::sol_types::private::Address,
     }
@@ -3498,7 +3498,7 @@ pub mod SwapManager {
         #[automatically_derived]
         impl alloy_sol_types::SolEvent for TaskResponded {
             type DataTuple<'a> = (
-                ISwapManager::Task,
+                ITradeManager::Task,
                 alloy::sol_types::sol_data::Address,
             );
             type DataToken<'a> = <Self::DataTuple<'a> as alloy_sol_types::SolType>::Token<'a>;
@@ -3542,7 +3542,7 @@ pub mod SwapManager {
             #[inline]
             fn tokenize_body(&self) -> Self::DataToken<'_> {
                 (
-                    <ISwapManager::Task as alloy_sol_types::SolType>::tokenize(
+                    <ITradeManager::Task as alloy_sol_types::SolType>::tokenize(
                         &self.task,
                     ),
                     <alloy::sol_types::sol_data::Address as alloy_sol_types::SolType>::tokenize(
@@ -4533,7 +4533,7 @@ pub mod SwapManager {
     };
     /**Function with signature `createNewTask(string)` and selector `0x85edf874`.
     ```solidity
-    function createNewTask(string memory name) external returns (ISwapManager.Task memory);
+    function createNewTask(string memory name) external returns (ITradeManager.Task memory);
     ```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
@@ -4546,7 +4546,7 @@ pub mod SwapManager {
     #[derive(Clone)]
     pub struct createNewTaskReturn {
         #[allow(missing_docs)]
-        pub _0: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+        pub _0: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
     }
     #[allow(
         non_camel_case_types,
@@ -4587,10 +4587,10 @@ pub mod SwapManager {
         }
         {
             #[doc(hidden)]
-            type UnderlyingSolTuple<'a> = (ISwapManager::Task,);
+            type UnderlyingSolTuple<'a> = (ITradeManager::Task,);
             #[doc(hidden)]
             type UnderlyingRustTuple<'a> =
-                (<ISwapManager::Task as alloy::sol_types::SolType>::RustType,);
+                (<ITradeManager::Task as alloy::sol_types::SolType>::RustType,);
             #[cfg(test)]
             #[allow(dead_code, unreachable_patterns)]
             fn _type_assertion(_t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>) {
@@ -4620,7 +4620,7 @@ pub mod SwapManager {
             type Parameters<'a> = (alloy::sol_types::sol_data::String,);
             type Token<'a> = <Self::Parameters<'a> as alloy_sol_types::SolType>::Token<'a>;
             type Return = createNewTaskReturn;
-            type ReturnTuple<'a> = (ISwapManager::Task,);
+            type ReturnTuple<'a> = (ITradeManager::Task,);
             type ReturnToken<'a> = <Self::ReturnTuple<'a> as alloy_sol_types::SolType>::Token<'a>;
             const SIGNATURE: &'static str = "createNewTask(string)";
             const SELECTOR: [u8; 4] = [133u8, 237u8, 248u8, 116u8];
@@ -6241,13 +6241,13 @@ pub mod SwapManager {
     };
     /**Function with signature `respondToTask((string,uint32),uint32,bytes)` and selector `0x3415a49c`.
     ```solidity
-    function respondToTask(ISwapManager.Task memory task, uint32 referenceTaskIndex, bytes memory signature) external;
+    function respondToTask(ITradeManager.Task memory task, uint32 referenceTaskIndex, bytes memory signature) external;
     ```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
     pub struct respondToTaskCall {
         #[allow(missing_docs)]
-        pub task: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+        pub task: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
         #[allow(missing_docs)]
         pub referenceTaskIndex: u32,
         #[allow(missing_docs)]
@@ -6268,13 +6268,13 @@ pub mod SwapManager {
         {
             #[doc(hidden)]
             type UnderlyingSolTuple<'a> = (
-                ISwapManager::Task,
+                ITradeManager::Task,
                 alloy::sol_types::sol_data::Uint<32>,
                 alloy::sol_types::sol_data::Bytes,
             );
             #[doc(hidden)]
             type UnderlyingRustTuple<'a> = (
-                <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+                <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
                 u32,
                 alloy::sol_types::private::Bytes,
             );
@@ -6338,7 +6338,7 @@ pub mod SwapManager {
         #[automatically_derived]
         impl alloy_sol_types::SolCall for respondToTaskCall {
             type Parameters<'a> = (
-                ISwapManager::Task,
+                ITradeManager::Task,
                 alloy::sol_types::sol_data::Uint<32>,
                 alloy::sol_types::sol_data::Bytes,
             );
@@ -6357,7 +6357,7 @@ pub mod SwapManager {
             #[inline]
             fn tokenize(&self) -> Self::Token<'_> {
                 (
-                    <ISwapManager::Task as alloy_sol_types::SolType>::tokenize(
+                    <ITradeManager::Task as alloy_sol_types::SolType>::tokenize(
                         &self.task,
                     ),
                     <alloy::sol_types::sol_data::Uint<32> as alloy_sol_types::SolType>::tokenize(
@@ -6981,13 +6981,13 @@ pub mod SwapManager {
     };
     /**Function with signature `slashOperator((string,uint32),uint32,address)` and selector `0x9677de10`.
     ```solidity
-    function slashOperator(ISwapManager.Task memory task, uint32 referenceTaskIndex, address operator) external;
+    function slashOperator(ITradeManager.Task memory task, uint32 referenceTaskIndex, address operator) external;
     ```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
     pub struct slashOperatorCall {
         #[allow(missing_docs)]
-        pub task: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+        pub task: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
         #[allow(missing_docs)]
         pub referenceTaskIndex: u32,
         #[allow(missing_docs)]
@@ -7008,13 +7008,13 @@ pub mod SwapManager {
         {
             #[doc(hidden)]
             type UnderlyingSolTuple<'a> = (
-                ISwapManager::Task,
+                ITradeManager::Task,
                 alloy::sol_types::sol_data::Uint<32>,
                 alloy::sol_types::sol_data::Address,
             );
             #[doc(hidden)]
             type UnderlyingRustTuple<'a> = (
-                <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+                <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
                 u32,
                 alloy::sol_types::private::Address,
             );
@@ -7078,7 +7078,7 @@ pub mod SwapManager {
         #[automatically_derived]
         impl alloy_sol_types::SolCall for slashOperatorCall {
             type Parameters<'a> = (
-                ISwapManager::Task,
+                ITradeManager::Task,
                 alloy::sol_types::sol_data::Uint<32>,
                 alloy::sol_types::sol_data::Address,
             );
@@ -7097,7 +7097,7 @@ pub mod SwapManager {
             #[inline]
             fn tokenize(&self) -> Self::Token<'_> {
                 (
-                    <ISwapManager::Task as alloy_sol_types::SolType>::tokenize(
+                    <ITradeManager::Task as alloy_sol_types::SolType>::tokenize(
                         &self.task,
                     ),
                     <alloy::sol_types::sol_data::Uint<32> as alloy_sol_types::SolType>::tokenize(
@@ -7581,8 +7581,8 @@ pub mod SwapManager {
             }
         }
     };
-    ///Container for all the [`SwapManager`](self) function calls.
-    pub enum SwapManagerCalls {
+    ///Container for all the [`TradeManager`](self) function calls.
+    pub enum TradeManagerCalls {
         #[allow(missing_docs)]
         MAX_RESPONSE_INTERVAL_BLOCKS(MAX_RESPONSE_INTERVAL_BLOCKSCall),
         #[allow(missing_docs)]
@@ -7649,7 +7649,7 @@ pub mod SwapManager {
         updateAVSMetadataURI(updateAVSMetadataURICall),
     }
     #[automatically_derived]
-    impl SwapManagerCalls {
+    impl TradeManagerCalls {
         /// All the selectors of this enum.
         ///
         /// Note that the selectors might not be in the same order as the variants.
@@ -7692,8 +7692,8 @@ pub mod SwapManager {
         ];
     }
     #[automatically_derived]
-    impl alloy_sol_types::SolInterface for SwapManagerCalls {
-        const NAME: &'static str = "SwapManagerCalls";
+    impl alloy_sol_types::SolInterface for TradeManagerCalls {
+        const NAME: &'static str = "TradeManagerCalls";
         const MIN_DATA_LENGTH: usize = 0usize;
         const COUNT: usize = 32usize;
         #[inline]
@@ -7814,17 +7814,17 @@ pub mod SwapManager {
                 &[u8],
                 bool,
             )
-                -> alloy_sol_types::Result<SwapManagerCalls>] = &[
+                -> alloy_sol_types::Result<TradeManagerCalls>] = &[
                 {
                     fn removeAdmin(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <removeAdminCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::removeAdmin)
+                        .map(TradeManagerCalls::removeAdmin)
                     }
                     removeAdmin
                 },
@@ -7832,12 +7832,12 @@ pub mod SwapManager {
                     fn setAppointee(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <setAppointeeCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::setAppointee)
+                        .map(TradeManagerCalls::setAppointee)
                     }
                     setAppointee
                 },
@@ -7845,12 +7845,12 @@ pub mod SwapManager {
                     fn addPendingAdmin(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <addPendingAdminCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::addPendingAdmin)
+                        .map(TradeManagerCalls::addPendingAdmin)
                     }
                     addPendingAdmin
                 },
@@ -7858,12 +7858,12 @@ pub mod SwapManager {
                     fn allTaskHashes(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <allTaskHashesCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::allTaskHashes)
+                        .map(TradeManagerCalls::allTaskHashes)
                     }
                     allTaskHashes
                 },
@@ -7871,14 +7871,14 @@ pub mod SwapManager {
                     fn getOperatorRestakedStrategies(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <getOperatorRestakedStrategiesCall as alloy_sol_types::SolCall>::abi_decode_raw(
                                 data,
                                 validate,
                             )
                             .map(
-                                SwapManagerCalls::getOperatorRestakedStrategies,
+                                TradeManagerCalls::getOperatorRestakedStrategies,
                             )
                     }
                     getOperatorRestakedStrategies
@@ -7887,12 +7887,12 @@ pub mod SwapManager {
                     fn respondToTask(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <respondToTaskCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::respondToTask)
+                        .map(TradeManagerCalls::respondToTask)
                     }
                     respondToTask
                 },
@@ -7900,12 +7900,12 @@ pub mod SwapManager {
                     fn setRewardsInitiator(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <setRewardsInitiatorCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::setRewardsInitiator)
+                        .map(TradeManagerCalls::setRewardsInitiator)
                     }
                     setRewardsInitiator
                 },
@@ -7913,10 +7913,10 @@ pub mod SwapManager {
                     fn initialize(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <initializeCall as alloy_sol_types::SolCall>::abi_decode_raw(data, validate)
-                            .map(SwapManagerCalls::initialize)
+                            .map(TradeManagerCalls::initialize)
                     }
                     initialize
                 },
@@ -7924,12 +7924,12 @@ pub mod SwapManager {
                     fn stakeRegistry(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <stakeRegistryCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::stakeRegistry)
+                        .map(TradeManagerCalls::stakeRegistry)
                     }
                     stakeRegistry
                 },
@@ -7937,12 +7937,12 @@ pub mod SwapManager {
                     fn avsDirectory(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <avsDirectoryCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::avsDirectory)
+                        .map(TradeManagerCalls::avsDirectory)
                     }
                     avsDirectory
                 },
@@ -7950,12 +7950,12 @@ pub mod SwapManager {
                     fn renounceOwnership(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <renounceOwnershipCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::renounceOwnership)
+                        .map(TradeManagerCalls::renounceOwnership)
                     }
                     renounceOwnership
                 },
@@ -7963,14 +7963,14 @@ pub mod SwapManager {
                     fn MAX_RESPONSE_INTERVAL_BLOCKS(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <MAX_RESPONSE_INTERVAL_BLOCKSCall as alloy_sol_types::SolCall>::abi_decode_raw(
                                 data,
                                 validate,
                             )
                             .map(
-                                SwapManagerCalls::MAX_RESPONSE_INTERVAL_BLOCKS,
+                                TradeManagerCalls::MAX_RESPONSE_INTERVAL_BLOCKS,
                             )
                     }
                     MAX_RESPONSE_INTERVAL_BLOCKS
@@ -7979,12 +7979,12 @@ pub mod SwapManager {
                     fn taskWasResponded(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <taskWasRespondedCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::taskWasResponded)
+                        .map(TradeManagerCalls::taskWasResponded)
                     }
                     taskWasResponded
                 },
@@ -7992,12 +7992,12 @@ pub mod SwapManager {
                     fn createNewTask(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <createNewTaskCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::createNewTask)
+                        .map(TradeManagerCalls::createNewTask)
                     }
                     createNewTask
                 },
@@ -8005,12 +8005,12 @@ pub mod SwapManager {
                     fn latestTaskNum(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <latestTaskNumCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::latestTaskNum)
+                        .map(TradeManagerCalls::latestTaskNum)
                     }
                     latestTaskNum
                 },
@@ -8018,10 +8018,10 @@ pub mod SwapManager {
                     fn owner(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <ownerCall as alloy_sol_types::SolCall>::abi_decode_raw(data, validate)
-                            .map(SwapManagerCalls::owner)
+                            .map(TradeManagerCalls::owner)
                     }
                     owner
                 },
@@ -8029,12 +8029,12 @@ pub mod SwapManager {
                     fn slashOperator(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <slashOperatorCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::slashOperator)
+                        .map(TradeManagerCalls::slashOperator)
                     }
                     slashOperator
                 },
@@ -8042,12 +8042,12 @@ pub mod SwapManager {
                     fn registerOperatorToAVS(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <registerOperatorToAVSCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::registerOperatorToAVS)
+                        .map(TradeManagerCalls::registerOperatorToAVS)
                     }
                     registerOperatorToAVS
                 },
@@ -8055,12 +8055,12 @@ pub mod SwapManager {
                     fn removePendingAdmin(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <removePendingAdminCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::removePendingAdmin)
+                        .map(TradeManagerCalls::removePendingAdmin)
                     }
                     removePendingAdmin
                 },
@@ -8068,12 +8068,12 @@ pub mod SwapManager {
                     fn setClaimerFor(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <setClaimerForCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::setClaimerFor)
+                        .map(TradeManagerCalls::setClaimerFor)
                     }
                     setClaimerFor
                 },
@@ -8081,14 +8081,14 @@ pub mod SwapManager {
                     fn createOperatorDirectedAVSRewardsSubmission(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <createOperatorDirectedAVSRewardsSubmissionCall as alloy_sol_types::SolCall>::abi_decode_raw(
                                 data,
                                 validate,
                             )
                             .map(
-                                SwapManagerCalls::createOperatorDirectedAVSRewardsSubmission,
+                                TradeManagerCalls::createOperatorDirectedAVSRewardsSubmission,
                             )
                     }
                     createOperatorDirectedAVSRewardsSubmission
@@ -8097,12 +8097,12 @@ pub mod SwapManager {
                     fn deregisterOperatorFromAVS(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <deregisterOperatorFromAVSCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::deregisterOperatorFromAVS)
+                        .map(TradeManagerCalls::deregisterOperatorFromAVS)
                     }
                     deregisterOperatorFromAVS
                 },
@@ -8110,12 +8110,12 @@ pub mod SwapManager {
                     fn updateAVSMetadataURI(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <updateAVSMetadataURICall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::updateAVSMetadataURI)
+                        .map(TradeManagerCalls::updateAVSMetadataURI)
                     }
                     updateAVSMetadataURI
                 },
@@ -8123,12 +8123,12 @@ pub mod SwapManager {
                     fn removeAppointee(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <removeAppointeeCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::removeAppointee)
+                        .map(TradeManagerCalls::removeAppointee)
                     }
                     removeAppointee
                 },
@@ -8136,14 +8136,14 @@ pub mod SwapManager {
                     fn deregisterOperatorFromOperatorSets(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <deregisterOperatorFromOperatorSetsCall as alloy_sol_types::SolCall>::abi_decode_raw(
                                 data,
                                 validate,
                             )
                             .map(
-                                SwapManagerCalls::deregisterOperatorFromOperatorSets,
+                                TradeManagerCalls::deregisterOperatorFromOperatorSets,
                             )
                     }
                     deregisterOperatorFromOperatorSets
@@ -8152,12 +8152,12 @@ pub mod SwapManager {
                     fn allTaskResponses(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <allTaskResponsesCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::allTaskResponses)
+                        .map(TradeManagerCalls::allTaskResponses)
                     }
                     allTaskResponses
                 },
@@ -8165,12 +8165,12 @@ pub mod SwapManager {
                     fn allocationManager(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <allocationManagerCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::allocationManager)
+                        .map(TradeManagerCalls::allocationManager)
                     }
                     allocationManager
                 },
@@ -8178,12 +8178,12 @@ pub mod SwapManager {
                     fn getRestakeableStrategies(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <getRestakeableStrategiesCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::getRestakeableStrategies)
+                        .map(TradeManagerCalls::getRestakeableStrategies)
                     }
                     getRestakeableStrategies
                 },
@@ -8191,12 +8191,12 @@ pub mod SwapManager {
                     fn setAVSRegistrar(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <setAVSRegistrarCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::setAVSRegistrar)
+                        .map(TradeManagerCalls::setAVSRegistrar)
                     }
                     setAVSRegistrar
                 },
@@ -8204,12 +8204,12 @@ pub mod SwapManager {
                     fn transferOwnership(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <transferOwnershipCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::transferOwnership)
+                        .map(TradeManagerCalls::transferOwnership)
                     }
                     transferOwnership
                 },
@@ -8217,12 +8217,12 @@ pub mod SwapManager {
                     fn rewardsInitiator(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <rewardsInitiatorCall as alloy_sol_types::SolCall>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerCalls::rewardsInitiator)
+                        .map(TradeManagerCalls::rewardsInitiator)
                     }
                     rewardsInitiator
                 },
@@ -8230,14 +8230,14 @@ pub mod SwapManager {
                     fn createAVSRewardsSubmission(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerCalls>
+                    ) -> alloy_sol_types::Result<TradeManagerCalls>
                     {
                         <createAVSRewardsSubmissionCall as alloy_sol_types::SolCall>::abi_decode_raw(
                                 data,
                                 validate,
                             )
                             .map(
-                                SwapManagerCalls::createAVSRewardsSubmission,
+                                TradeManagerCalls::createAVSRewardsSubmission,
                             )
                     }
                     createAVSRewardsSubmission
@@ -8607,8 +8607,8 @@ pub mod SwapManager {
             }
         }
     }
-    ///Container for all the [`SwapManager`](self) custom errors.
-    pub enum SwapManagerErrors {
+    ///Container for all the [`TradeManager`](self) custom errors.
+    pub enum TradeManagerErrors {
         #[allow(missing_docs)]
         DelayPeriodNotPassed(DelayPeriodNotPassed),
         #[allow(missing_docs)]
@@ -8619,7 +8619,7 @@ pub mod SwapManager {
         OnlyStakeRegistry(OnlyStakeRegistry),
     }
     #[automatically_derived]
-    impl SwapManagerErrors {
+    impl TradeManagerErrors {
         /// All the selectors of this enum.
         ///
         /// Note that the selectors might not be in the same order as the variants.
@@ -8634,8 +8634,8 @@ pub mod SwapManager {
         ];
     }
     #[automatically_derived]
-    impl alloy_sol_types::SolInterface for SwapManagerErrors {
-        const NAME: &'static str = "SwapManagerErrors";
+    impl alloy_sol_types::SolInterface for TradeManagerErrors {
+        const NAME: &'static str = "TradeManagerErrors";
         const MIN_DATA_LENGTH: usize = 0usize;
         const COUNT: usize = 4usize;
         #[inline]
@@ -8674,18 +8674,18 @@ pub mod SwapManager {
                 &[u8],
                 bool,
             ) -> alloy_sol_types::Result<
-                SwapManagerErrors,
+                TradeManagerErrors,
             >] = &[
                 {
                     fn OnlyStakeRegistry(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerErrors>
+                    ) -> alloy_sol_types::Result<TradeManagerErrors>
                     {
                         <OnlyStakeRegistry as alloy_sol_types::SolError>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerErrors::OnlyStakeRegistry)
+                        .map(TradeManagerErrors::OnlyStakeRegistry)
                     }
                     OnlyStakeRegistry
                 },
@@ -8693,12 +8693,12 @@ pub mod SwapManager {
                     fn OnlyRegistryCoordinator(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerErrors>
+                    ) -> alloy_sol_types::Result<TradeManagerErrors>
                     {
                         <OnlyRegistryCoordinator as alloy_sol_types::SolError>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerErrors::OnlyRegistryCoordinator)
+                        .map(TradeManagerErrors::OnlyRegistryCoordinator)
                     }
                     OnlyRegistryCoordinator
                 },
@@ -8706,12 +8706,12 @@ pub mod SwapManager {
                     fn OnlyRewardsInitiator(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerErrors>
+                    ) -> alloy_sol_types::Result<TradeManagerErrors>
                     {
                         <OnlyRewardsInitiator as alloy_sol_types::SolError>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerErrors::OnlyRewardsInitiator)
+                        .map(TradeManagerErrors::OnlyRewardsInitiator)
                     }
                     OnlyRewardsInitiator
                 },
@@ -8719,12 +8719,12 @@ pub mod SwapManager {
                     fn DelayPeriodNotPassed(
                         data: &[u8],
                         validate: bool,
-                    ) -> alloy_sol_types::Result<SwapManagerErrors>
+                    ) -> alloy_sol_types::Result<TradeManagerErrors>
                     {
                         <DelayPeriodNotPassed as alloy_sol_types::SolError>::abi_decode_raw(
                             data, validate,
                         )
-                        .map(SwapManagerErrors::DelayPeriodNotPassed)
+                        .map(TradeManagerErrors::DelayPeriodNotPassed)
                     }
                     DelayPeriodNotPassed
                 },
@@ -8774,8 +8774,8 @@ pub mod SwapManager {
             }
         }
     }
-    ///Container for all the [`SwapManager`](self) events.
-    pub enum SwapManagerEvents {
+    ///Container for all the [`TradeManager`](self) events.
+    pub enum TradeManagerEvents {
         #[allow(missing_docs)]
         Initialized(Initialized),
         #[allow(missing_docs)]
@@ -8788,7 +8788,7 @@ pub mod SwapManager {
         TaskResponded(TaskResponded),
     }
     #[automatically_derived]
-    impl SwapManagerEvents {
+    impl TradeManagerEvents {
         /// All the selectors of this enum.
         ///
         /// Note that the selectors might not be in the same order as the variants.
@@ -8824,8 +8824,8 @@ pub mod SwapManager {
         ];
     }
     #[automatically_derived]
-    impl alloy_sol_types::SolEventInterface for SwapManagerEvents {
-        const NAME: &'static str = "SwapManagerEvents";
+    impl alloy_sol_types::SolEventInterface for TradeManagerEvents {
+        const NAME: &'static str = "TradeManagerEvents";
         const COUNT: usize = 5usize;
         fn decode_raw_log(
             topics: &[alloy_sol_types::Word],
@@ -8876,7 +8876,7 @@ pub mod SwapManager {
         }
     }
     #[automatically_derived]
-    impl alloy_sol_types::private::IntoLogData for SwapManagerEvents {
+    impl alloy_sol_types::private::IntoLogData for TradeManagerEvents {
         fn to_log_data(&self) -> alloy_sol_types::private::LogData {
             match self {
                 Self::Initialized(inner) => {
@@ -8917,9 +8917,9 @@ pub mod SwapManager {
         }
     }
     use alloy::contract as alloy_contract;
-    /**Creates a new wrapper around an on-chain [`SwapManager`](self) contract instance.
+    /**Creates a new wrapper around an on-chain [`TradeManager`](self) contract instance.
 
-    See the [wrapper's documentation](`SwapManagerInstance`) for more details.*/
+    See the [wrapper's documentation](`TradeManagerInstance`) for more details.*/
     #[inline]
     pub const fn new<
         T: alloy_contract::private::Transport + ::core::clone::Clone,
@@ -8928,8 +8928,8 @@ pub mod SwapManager {
     >(
         address: alloy_sol_types::private::Address,
         provider: P,
-    ) -> SwapManagerInstance<T, P, N> {
-        SwapManagerInstance::<T, P, N>::new(address, provider)
+    ) -> TradeManagerInstance<T, P, N> {
+        TradeManagerInstance::<T, P, N>::new(address, provider)
     }
     /**Deploys this contract using the given `provider` and constructor arguments, if any.
 
@@ -8950,9 +8950,9 @@ pub mod SwapManager {
         _allocationManager: alloy::sol_types::private::Address,
         _maxResponseIntervalBlocks: u32,
     ) -> impl ::core::future::Future<
-        Output = alloy_contract::Result<SwapManagerInstance<T, P, N>>,
+        Output = alloy_contract::Result<TradeManagerInstance<T, P, N>>,
     > {
-        SwapManagerInstance::<T, P, N>::deploy(
+        TradeManagerInstance::<T, P, N>::deploy(
             provider,
             _avsDirectory,
             _stakeRegistry,
@@ -8981,7 +8981,7 @@ pub mod SwapManager {
         _allocationManager: alloy::sol_types::private::Address,
         _maxResponseIntervalBlocks: u32,
     ) -> alloy_contract::RawCallBuilder<T, P, N> {
-        SwapManagerInstance::<T, P, N>::deploy_builder(
+        TradeManagerInstance::<T, P, N>::deploy_builder(
             provider,
             _avsDirectory,
             _stakeRegistry,
@@ -8991,10 +8991,10 @@ pub mod SwapManager {
             _maxResponseIntervalBlocks,
         )
     }
-    /**A [`SwapManager`](self) instance.
+    /**A [`TradeManager`](self) instance.
 
     Contains type-safe methods for interacting with an on-chain instance of the
-    [`SwapManager`](self) contract located at a given `address`, using a given
+    [`TradeManager`](self) contract located at a given `address`, using a given
     provider `P`.
 
     If the contract bytecode is available (see the [`sol!`](alloy_sol_types::sol!)
@@ -9003,16 +9003,16 @@ pub mod SwapManager {
 
     See the [module-level documentation](self) for all the available methods.*/
     #[derive(Clone)]
-    pub struct SwapManagerInstance<T, P, N = alloy_contract::private::Ethereum> {
+    pub struct TradeManagerInstance<T, P, N = alloy_contract::private::Ethereum> {
         address: alloy_sol_types::private::Address,
         provider: P,
         _network_transport: ::core::marker::PhantomData<(N, T)>,
     }
     #[automatically_derived]
-    impl<T, P, N> ::core::fmt::Debug for SwapManagerInstance<T, P, N> {
+    impl<T, P, N> ::core::fmt::Debug for TradeManagerInstance<T, P, N> {
         #[inline]
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-            f.debug_tuple("SwapManagerInstance")
+            f.debug_tuple("TradeManagerInstance")
                 .field(&self.address)
                 .finish()
         }
@@ -9023,11 +9023,11 @@ pub mod SwapManager {
             T: alloy_contract::private::Transport + ::core::clone::Clone,
             P: alloy_contract::private::Provider<T, N>,
             N: alloy_contract::private::Network,
-        > SwapManagerInstance<T, P, N>
+        > TradeManagerInstance<T, P, N>
     {
-        /**Creates a new wrapper around an on-chain [`SwapManager`](self) contract instance.
+        /**Creates a new wrapper around an on-chain [`TradeManager`](self) contract instance.
 
-        See the [wrapper's documentation](`SwapManagerInstance`) for more details.*/
+        See the [wrapper's documentation](`TradeManagerInstance`) for more details.*/
         #[inline]
         pub const fn new(address: alloy_sol_types::private::Address, provider: P) -> Self {
             Self {
@@ -9050,7 +9050,7 @@ pub mod SwapManager {
             _delegationManager: alloy::sol_types::private::Address,
             _allocationManager: alloy::sol_types::private::Address,
             _maxResponseIntervalBlocks: u32,
-        ) -> alloy_contract::Result<SwapManagerInstance<T, P, N>> {
+        ) -> alloy_contract::Result<TradeManagerInstance<T, P, N>> {
             let call_builder = Self::deploy_builder(
                 provider,
                 _avsDirectory,
@@ -9116,11 +9116,11 @@ pub mod SwapManager {
             &self.provider
         }
     }
-    impl<T, P: ::core::clone::Clone, N> SwapManagerInstance<T, &P, N> {
+    impl<T, P: ::core::clone::Clone, N> TradeManagerInstance<T, &P, N> {
         /// Clones the provider and returns a new instance with the cloned provider.
         #[inline]
-        pub fn with_cloned_provider(self) -> SwapManagerInstance<T, P, N> {
-            SwapManagerInstance {
+        pub fn with_cloned_provider(self) -> TradeManagerInstance<T, P, N> {
+            TradeManagerInstance {
                 address: self.address,
                 provider: ::core::clone::Clone::clone(&self.provider),
                 _network_transport: ::core::marker::PhantomData,
@@ -9133,7 +9133,7 @@ pub mod SwapManager {
             T: alloy_contract::private::Transport + ::core::clone::Clone,
             P: alloy_contract::private::Provider<T, N>,
             N: alloy_contract::private::Network,
-        > SwapManagerInstance<T, P, N>
+        > TradeManagerInstance<T, P, N>
     {
         /// Creates a new call builder using this contract instance's provider and address.
         ///
@@ -9309,7 +9309,7 @@ pub mod SwapManager {
         ///Creates a new call builder for the [`respondToTask`] function.
         pub fn respondToTask(
             &self,
-            task: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+            task: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
             referenceTaskIndex: u32,
             signature: alloy::sol_types::private::Bytes,
         ) -> alloy_contract::SolCallBuilder<T, &P, respondToTaskCall, N> {
@@ -9364,7 +9364,7 @@ pub mod SwapManager {
         ///Creates a new call builder for the [`slashOperator`] function.
         pub fn slashOperator(
             &self,
-            task: <ISwapManager::Task as alloy::sol_types::SolType>::RustType,
+            task: <ITradeManager::Task as alloy::sol_types::SolType>::RustType,
             referenceTaskIndex: u32,
             operator: alloy::sol_types::private::Address,
         ) -> alloy_contract::SolCallBuilder<T, &P, slashOperatorCall, N> {
@@ -9406,7 +9406,7 @@ pub mod SwapManager {
             T: alloy_contract::private::Transport + ::core::clone::Clone,
             P: alloy_contract::private::Provider<T, N>,
             N: alloy_contract::private::Network,
-        > SwapManagerInstance<T, P, N>
+        > TradeManagerInstance<T, P, N>
     {
         /// Creates a new event filter using this contract instance's provider and address.
         ///

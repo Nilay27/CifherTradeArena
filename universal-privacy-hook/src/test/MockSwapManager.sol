@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ISwapManager} from "../interfaces/ISwapManager.sol";
+import {ITradeManager} from "../interfaces/ITradeManager.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
@@ -40,11 +40,11 @@ struct InternalTransferInput {
 }
 
 /**
- * @title MockSwapManager
- * @dev Mock implementation of ISwapManager for testing
+ * @title MockTradeManager
+ * @dev Mock implementation of ITradeManager for testing
  * @notice This mock allows testing batch finalization and settlement without deploying the full AVS
  */
-contract MockSwapManager is ISwapManager {
+contract MockTradeManager is ITradeManager {
     address public hook;
 
     // Store finalized batches
@@ -63,7 +63,7 @@ contract MockSwapManager is ISwapManager {
     }
 
     /**
-     * @inheritdoc ISwapManager
+     * @inheritdoc ITradeManager
      */
     function createBatch(
         bytes32 batchId,
@@ -77,7 +77,7 @@ contract MockSwapManager is ISwapManager {
     }
 
     /**
-     * @inheritdoc ISwapManager
+     * @inheritdoc ITradeManager
      */
     function selectOperatorsForBatch(bytes32) external pure override returns (address[] memory) {
         // Mock implementation - return empty array
@@ -86,7 +86,7 @@ contract MockSwapManager is ISwapManager {
     }
 
     /**
-     * @inheritdoc ISwapManager
+     * @inheritdoc ITradeManager
      */
     function finalizeBatch(bytes32 batchId, bytes calldata batchData) external override {
         // Mark batch as finalized
@@ -96,7 +96,7 @@ contract MockSwapManager is ISwapManager {
 
     /**
      * @dev Mock function to call settleBatch on the hook
-     * @notice Mimics real SwapManager behavior: loads InEuint128 to euint128 before forwarding to hook
+     * @notice Mimics real TradeManager behavior: loads InEuint128 to euint128 before forwarding to hook
      * @param internalTransfersInput Array of InternalTransferInput with InEuint128 values from tests
      */
     function mockSettleBatch(
@@ -111,15 +111,15 @@ contract MockSwapManager is ISwapManager {
         require(hook != address(0), "Hook not set");
         require(finalizedBatches[batchId], "Batch not finalized");
 
-        // Load InEuint128 to euint128 in MockSwapManager (msg.sender context)
-        // This mimics the real SwapManager's behavior
+        // Load InEuint128 to euint128 in MockTradeManager (msg.sender context)
+        // This mimics the real TradeManager's behavior
         IHookSettlement.InternalTransfer[] memory internalTransfers =
             new IHookSettlement.InternalTransfer[](internalTransfersInput.length);
 
         for (uint256 i = 0; i < internalTransfersInput.length; i++) {
             euint128 loadedAmount = FHE.asEuint128(internalTransfersInput[i].encAmount);
 
-            // Allow Hook to use and grant permissions further (like Hook does for SwapManager in _finalizeBatch)
+            // Allow Hook to use and grant permissions further (like Hook does for TradeManager in _finalizeBatch)
             FHE.allowTransient(loadedAmount, hook);
 
             internalTransfers[i] = IHookSettlement.InternalTransfer({

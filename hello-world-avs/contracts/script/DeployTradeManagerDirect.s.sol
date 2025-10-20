@@ -3,25 +3,25 @@ pragma solidity ^0.8.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
-import {SwapManager} from "../src/SwapManager.sol";
+import {TradeManager} from "../src/TradeManager.sol";
 import {ECDSAStakeRegistry} from "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./utils/CoreDeploymentParsingLib.sol";
-import {SwapManagerDeploymentLib} from "./utils/SwapManagerDeploymentLib.sol";
+import {TradeManagerDeploymentLib} from "./utils/TradeManagerDeploymentLib.sol";
 
 interface IUniversalPrivacyHook {
-    function setSwapManager(address _swapManager) external;
+    function setTradeManager(address _swapManager) external;
     function owner() external view returns (address);
 }
 
 /**
- * @title DeploySwapManagerDirect
- * @notice Deploys SwapManager as a NON-UPGRADEABLE contract (no proxy)
+ * @title DeployTradeManagerDirect
+ * @notice Deploys TradeManager as a NON-UPGRADEABLE contract (no proxy)
  * @dev This fixes the SepoliaConfig immutable variable issue with proxies
  */
-contract DeploySwapManagerDirect is Script {
+contract DeployTradeManagerDirect is Script {
     address internal deployer;
     CoreDeployLib.DeploymentData coreDeployment;
-    SwapManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
+    TradeManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
 
     // UniversalPrivacyHook address on Sepolia
     address constant UNIVERSAL_PRIVACY_HOOK = 0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080;
@@ -31,7 +31,7 @@ contract DeploySwapManagerDirect is Script {
         vm.label(deployer, "Deployer");
 
         swapManagerConfig =
-            SwapManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
+            TradeManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
 
         coreDeployment =
             CoreDeploymentParsingLib.readDeploymentJson("deployments/core/", block.chainid);
@@ -40,19 +40,19 @@ contract DeploySwapManagerDirect is Script {
     function run() external virtual {
         vm.startBroadcast(deployer);
 
-        console2.log("\n=== Deploying NON-UPGRADEABLE SwapManager ===");
+        console2.log("\n=== Deploying NON-UPGRADEABLE TradeManager ===");
         console2.log("Deployer:", deployer);
         console2.log("Rewards Owner:", swapManagerConfig.rewardsOwner);
         console2.log("Rewards Initiator:", swapManagerConfig.rewardsInitiator);
 
         // Read existing deployment to get stake registry
-        SwapManagerDeploymentLib.DeploymentData memory existingDeployment =
-            SwapManagerDeploymentLib.readDeploymentJson("deployments/swap-manager/", block.chainid);
+        TradeManagerDeploymentLib.DeploymentData memory existingDeployment =
+            TradeManagerDeploymentLib.readDeploymentJson("deployments/swap-manager/", block.chainid);
 
         console2.log("\nUsing existing StakeRegistry:", existingDeployment.stakeRegistry);
 
-        // Deploy SwapManager directly (NO PROXY)
-        SwapManager swapManager = new SwapManager(
+        // Deploy TradeManager directly (NO PROXY)
+        TradeManager tradeManager = new TradeManager(
             coreDeployment.avsDirectory,
             existingDeployment.stakeRegistry,
             coreDeployment.rewardsCoordinator,
@@ -62,40 +62,40 @@ contract DeploySwapManagerDirect is Script {
             swapManagerConfig.rewardsOwner // admin
         );
 
-        console2.log("\nSwapManager deployed at:", address(swapManager));
+        console2.log("\nTradeManager deployed at:", address(tradeManager));
 
         // Note: For non-upgradeable contracts, initialization happens in constructor
         // No need to call initialize() separately
 
         // Verify admin
         console2.log("\nVerifying admin...");
-        address currentAdmin = swapManager.admin();
+        address currentAdmin = tradeManager.admin();
         console2.log("Current admin:", currentAdmin);
         require(currentAdmin == swapManagerConfig.rewardsOwner, "Admin mismatch");
 
         // Authorize the UniversalPrivacyHook
-        console2.log("\nAuthorizing UniversalPrivacyHook in SwapManager...");
-        swapManager.authorizeHook(UNIVERSAL_PRIVACY_HOOK);
+        console2.log("\nAuthorizing UniversalPrivacyHook in TradeManager...");
+        tradeManager.authorizeHook(UNIVERSAL_PRIVACY_HOOK);
         console2.log("Hook authorized");
 
 
-        IUniversalPrivacyHook(UNIVERSAL_PRIVACY_HOOK).setSwapManager(address(swapManager));
-        console2.log("SwapManager set in hook");
+        IUniversalPrivacyHook(UNIVERSAL_PRIVACY_HOOK).setTradeManager(address(tradeManager));
+        console2.log("TradeManager set in hook");
 
         vm.stopBroadcast();
 
         console2.log("\n=== Deployment Complete ===");
-        console2.log("SwapManager (non-upgradeable):", address(swapManager));
+        console2.log("TradeManager (non-upgradeable):", address(tradeManager));
         console2.log("StakeRegistry:", existingDeployment.stakeRegistry);
         console2.log("UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
 
         // Write deployment info
-        writeDeploymentInfo(address(swapManager), existingDeployment);
+        writeDeploymentInfo(address(tradeManager), existingDeployment);
     }
 
     function writeDeploymentInfo(
-        address swapManager,
-        SwapManagerDeploymentLib.DeploymentData memory existingDeployment
+        address tradeManager,
+        TradeManagerDeploymentLib.DeploymentData memory existingDeployment
     ) internal {
         string memory outputPath = "deployments/swap-manager/";
         string memory fileName = string.concat(outputPath, vm.toString(block.chainid), ".json");
@@ -105,9 +105,9 @@ contract DeploySwapManagerDirect is Script {
             vm.toString(block.timestamp),
             '","block_number":"',
             vm.toString(block.number),
-            '"},"addresses":{"SwapManager":"',
-            vm.toString(swapManager),
-            '","SwapManagerType":"direct-non-upgradeable","stakeRegistry":"',
+            '"},"addresses":{"TradeManager":"',
+            vm.toString(tradeManager),
+            '","TradeManagerType":"direct-non-upgradeable","stakeRegistry":"',
             vm.toString(existingDeployment.stakeRegistry),
             '","universalPrivacyHook":"',
             vm.toString(UNIVERSAL_PRIVACY_HOOK),

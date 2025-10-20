@@ -14,7 +14,7 @@ struct DynamicInE {
     bytes signature;
 }
 
-interface ISwapManager {
+interface ITradeManager {
     // ============ BATCH SYSTEM ============
     
     // Batch structures (removed - not used with hook's settlement structure)

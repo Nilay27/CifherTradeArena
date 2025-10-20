@@ -158,7 +158,7 @@ async function runIntegration() {
         fs.readFileSync('./hello-world-avs/abis/SwapManager.json', 'utf8')
     );
 
-    const swapManager = new ethers.Contract(
+    const tradeManager = new ethers.Contract(
         avsAddresses.addresses.SwapManager,
         swapManagerABI,
         provider
@@ -166,7 +166,7 @@ async function runIntegration() {
 
     // Listen for batch events
     await new Promise((resolve) => {
-        swapManager.once('BatchFinalized', (batchId, taskCount) => {
+        tradeManager.once('BatchFinalized', (batchId, taskCount) => {
             console.log(`\n📦 Batch ${batchId} finalized with ${taskCount} tasks`);
             resolve();
         });

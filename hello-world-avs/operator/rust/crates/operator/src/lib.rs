@@ -26,7 +26,7 @@ mod tests {
     use eigensdk::logging::init_logger;
 
     use eigensdk::utils::slashing::core::delegationmanager::DelegationManager;
-    use swap_manager_utils::SwapManager::SwapManager::{
+    use swap_manager_utils::TradeManager::TradeManager::{
         self, latestTaskNumReturn,
     };
     use swap_manager_utils::{
@@ -87,7 +87,7 @@ mod tests {
             .unwrap();
         let provider = &get_provider(&anvil_http);
         let swap_manager_contract =
-            SwapManager::new(swap_manager_contract_address, provider);
+            TradeManager::new(swap_manager_contract_address, provider);
 
         let latest_task_num = swap_manager_contract.latestTaskNum().call().await.unwrap();
 

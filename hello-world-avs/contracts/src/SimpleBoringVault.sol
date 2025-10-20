@@ -23,7 +23,7 @@ contract SimpleBoringVault is ReentrancyGuard {
     address public immutable hook;
 
     /**
-     * @notice The SwapManager AVS that can execute strategies
+     * @notice The TradeManager AVS that can execute strategies
      */
     address public immutable tradeManager;
 

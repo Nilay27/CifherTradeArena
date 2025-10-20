@@ -94,10 +94,10 @@ async function authorizeHook() {
     const hookData = JSON.parse(fs.readFileSync('../universal-privacy-hook/deployments/latest.json', 'utf8'));
 
     const swapManagerABI = JSON.parse(fs.readFileSync('./abis/SwapManager.json', 'utf8'));
-    const swapManager = new ethers.Contract(swapManagerData.addresses.SwapManager, swapManagerABI, wallet);
+    const tradeManager = new ethers.Contract(swapManagerData.addresses.SwapManager, swapManagerABI, wallet);
 
     console.log('Authorizing UniversalPrivacyHook:', hookData.universalPrivacyHook);
-    const tx = await swapManager.authorizeHook(hookData.universalPrivacyHook);
+    const tx = await tradeManager.authorizeHook(hookData.universalPrivacyHook);
     await tx.wait();
     console.log('✅ UniversalPrivacyHook authorized');
 }

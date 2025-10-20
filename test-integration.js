@@ -124,7 +124,7 @@ async function runIntegration() {
 
     // Set the SwapManager address in UniversalPrivacyHook (only if not already set)
     console.log('\n🔗 Checking SwapManager in UniversalPrivacyHook...');
-    const currentSwapManager = await universalHook.swapManager();
+    const currentSwapManager = await universalHook.tradeManager();
     if (currentSwapManager === ethers.ZeroAddress || currentSwapManager.toLowerCase() !== avsAddresses.addresses.SwapManager.toLowerCase()) {
         console.log('Setting SwapManager to:', avsAddresses.addresses.SwapManager);
         try {
@@ -347,7 +347,7 @@ async function runIntegration() {
         fs.readFileSync('./hello-world-avs/abis/SwapManager.json', 'utf8')
     );
 
-    const swapManager = new ethers.Contract(
+    const tradeManager = new ethers.Contract(
         avsAddresses.addresses.SwapManager,
         swapManagerABI,
         provider
@@ -355,7 +355,7 @@ async function runIntegration() {
 
     // Listen for batch events
     await new Promise((resolve) => {
-        swapManager.once('BatchFinalized', (batchId, taskCount) => {
+        tradeManager.once('BatchFinalized', (batchId, taskCount) => {
             console.log(`\n📦 Batch ${batchId} finalized with ${taskCount} tasks`);
             resolve();
         });

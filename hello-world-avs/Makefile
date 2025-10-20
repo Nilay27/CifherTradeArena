@@ -33,7 +33,7 @@ generate-bindings:
 	forge bind --alloy --skip-build --overwrite --module \
 		--root contracts/  \
 		--bindings-path ${RUST_BINDINGS_PATH} \
-		--select '^ECDSAStakeRegistry$$' --select '^SwapManager$$'
+		--select '^ECDSAStakeRegistry$$' --select '^TradeManager$$'
 
 __CLI__: ##
 

@@ -180,8 +180,8 @@ end_of_record
 TN:
 SF:src/UniversalPrivacyHook.sol
 DA:150,24
-FN:150,UniversalPrivacyHook.setSwapManager
-FNDA:24,UniversalPrivacyHook.setSwapManager
+FN:150,UniversalPrivacyHook.setTradeManager
+FNDA:24,UniversalPrivacyHook.setTradeManager
 DA:151,24
 BRDA:151,0,0,-
 BRDA:151,0,1,-

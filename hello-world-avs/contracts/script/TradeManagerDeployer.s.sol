@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
-import {SwapManagerDeploymentLib} from "./utils/SwapManagerDeploymentLib.sol";
+import {TradeManagerDeploymentLib} from "./utils/TradeManagerDeploymentLib.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./utils/CoreDeploymentParsingLib.sol";
 import {UpgradeableProxyLib} from "./utils/UpgradeableProxyLib.sol";
 import {StrategyBase} from "@eigenlayer/contracts/strategies/StrategyBase.sol";
@@ -13,7 +13,7 @@ import {TransparentUpgradeableProxy} from
 import {StrategyFactory} from "@eigenlayer/contracts/strategies/StrategyFactory.sol";
 import {StrategyManager} from "@eigenlayer/contracts/core/StrategyManager.sol";
 import {IRewardsCoordinator} from "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
-import {SwapManager} from "../src/SwapManager.sol";
+import {TradeManager} from "../src/TradeManager.sol";
 
 import {
     IECDSAStakeRegistryTypes,
@@ -23,10 +23,10 @@ import {
 import "forge-std/Test.sol";
 
 interface IUniversalPrivacyHook {
-    function setSwapManager(address _swapManager) external;
+    function setTradeManager(address _tradeManager) external;
 }
 
-contract SwapManagerDeployer is Script, Test {
+contract TradeManagerDeployer is Script, Test {
     using CoreDeployLib for *;
     using UpgradeableProxyLib for address;
 
@@ -34,10 +34,10 @@ contract SwapManagerDeployer is Script, Test {
     address proxyAdmin;
     address rewardsOwner;
     address rewardsInitiator;
-    IStrategy swapManagerStrategy;
+    IStrategy tradeManagerStrategy;
     CoreDeployLib.DeploymentData coreDeployment;
-    SwapManagerDeploymentLib.DeploymentData swapManagerDeployment;
-    SwapManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
+    TradeManagerDeploymentLib.DeploymentData tradeManagerDeployment;
+    TradeManagerDeploymentLib.DeploymentConfigData tradeManagerConfig;
     IECDSAStakeRegistryTypes.Quorum internal quorum;
     ERC20Mock token;
 
@@ -48,8 +48,8 @@ contract SwapManagerDeployer is Script, Test {
         deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
         vm.label(deployer, "Deployer");
 
-        swapManagerConfig =
-            SwapManagerDeploymentLib.readDeploymentConfigValues("config/swap-manager/", block.chainid);
+        tradeManagerConfig =
+            TradeManagerDeploymentLib.readDeploymentConfigValues("config/trade-manager/", block.chainid);
 
         coreDeployment =
             CoreDeploymentParsingLib.readDeploymentJson("deployments/core/", block.chainid);
@@ -57,17 +57,17 @@ contract SwapManagerDeployer is Script, Test {
 
     function run() external virtual {
         vm.startBroadcast(deployer);
-        rewardsOwner = swapManagerConfig.rewardsOwner;
-        rewardsInitiator = swapManagerConfig.rewardsInitiator;
+        rewardsOwner = tradeManagerConfig.rewardsOwner;
+        rewardsInitiator = tradeManagerConfig.rewardsInitiator;
 
         token = new ERC20Mock();
         // NOTE: if this fails, it's because the initialStrategyWhitelister is not set to be the StrategyFactory
-        swapManagerStrategy =
+        tradeManagerStrategy =
             IStrategy(StrategyFactory(coreDeployment.strategyFactory).deployNewStrategy(token));
 
         quorum.strategies.push(
             IECDSAStakeRegistryTypes.StrategyParams({
-                strategy: swapManagerStrategy,
+                strategy: tradeManagerStrategy,
                 multiplier: 10_000
             })
         );
@@ -75,50 +75,50 @@ contract SwapManagerDeployer is Script, Test {
         token.mint(deployer, 2000);
         token.increaseAllowance(address(coreDeployment.strategyManager), 1000);
         StrategyManager(coreDeployment.strategyManager).depositIntoStrategy(
-            swapManagerStrategy, token, 1000
+            tradeManagerStrategy, token, 1000
         );
 
         proxyAdmin = UpgradeableProxyLib.deployProxyAdmin();
 
-        swapManagerDeployment = SwapManagerDeploymentLib.deployContracts(
+        tradeManagerDeployment = TradeManagerDeploymentLib.deployContracts(
             proxyAdmin, coreDeployment, quorum, rewardsInitiator, rewardsOwner
         );
 
-        swapManagerDeployment.strategy = address(swapManagerStrategy);
-        swapManagerDeployment.token = address(token);
+        tradeManagerDeployment.strategy = address(tradeManagerStrategy);
+        tradeManagerDeployment.token = address(token);
 
-        // Set the SwapManager address in UniversalPrivacyHook
-        console2.log("Setting SwapManager in UniversalPrivacyHook...");
-        IUniversalPrivacyHook(UNIVERSAL_PRIVACY_HOOK).setSwapManager(swapManagerDeployment.SwapManager);
-        console2.log("SwapManager set successfully!");
+        // Set the TradeManager address in UniversalPrivacyHook
+        console2.log("Setting TradeManager in UniversalPrivacyHook...");
+        IUniversalPrivacyHook(UNIVERSAL_PRIVACY_HOOK).setTradeManager(tradeManagerDeployment.TradeManager);
+        console2.log("TradeManager set successfully!");
 
         // Check who the admin is
-        console2.log("Checking admin of SwapManager...");
-        address currentAdmin = SwapManager(swapManagerDeployment.SwapManager).admin();
+        console2.log("Checking admin of TradeManager...");
+        address currentAdmin = TradeManager(tradeManagerDeployment.TradeManager).admin();
         console2.log("Current admin:", currentAdmin);
         console2.log("Deployer address:", deployer);
         console2.log("RewardsOwner address:", rewardsOwner);
         console2.log("msg.sender:", msg.sender);
 
-        // Also authorize the hook in SwapManager
-        console2.log("Authorizing UniversalPrivacyHook in SwapManager...");
-        SwapManager(swapManagerDeployment.SwapManager).authorizeHook(UNIVERSAL_PRIVACY_HOOK);
+        // Also authorize the hook in TradeManager
+        console2.log("Authorizing UniversalPrivacyHook in TradeManager...");
+        TradeManager(tradeManagerDeployment.TradeManager).authorizeHook(UNIVERSAL_PRIVACY_HOOK);
         console2.log("Hook authorized successfully!");
 
         vm.stopBroadcast();
         verifyDeployment();
-        SwapManagerDeploymentLib.writeDeploymentJson(swapManagerDeployment);
+        TradeManagerDeploymentLib.writeDeploymentJson(tradeManagerDeployment);
     }
 
     function verifyDeployment() internal view {
         require(
-            swapManagerDeployment.stakeRegistry != address(0), "StakeRegistry address cannot be zero"
+            tradeManagerDeployment.stakeRegistry != address(0), "StakeRegistry address cannot be zero"
         );
         require(
-            swapManagerDeployment.SwapManager != address(0),
-            "SwapManager address cannot be zero"
+            tradeManagerDeployment.TradeManager != address(0),
+            "TradeManager address cannot be zero"
         );
-        require(swapManagerDeployment.strategy != address(0), "Strategy address cannot be zero");
+        require(tradeManagerDeployment.strategy != address(0), "Strategy address cannot be zero");
         require(proxyAdmin != address(0), "ProxyAdmin address cannot be zero");
         require(
             coreDeployment.delegationManager != address(0),

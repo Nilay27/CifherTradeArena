@@ -2,7 +2,7 @@
 pragma solidity ^0.8.12;
 
 import "forge-std/Script.sol";
-import "../src/SwapManager.sol";
+import "../src/TradeManager.sol";
 import "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
@@ -11,7 +11,7 @@ contract UpgradeProxy is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
 
-        console.log("Upgrading SwapManager proxy...");
+        console.log("Upgrading TradeManager proxy...");
         console.log("Deployer:", deployer);
 
         vm.startBroadcast(deployerPrivateKey);
@@ -37,10 +37,10 @@ contract UpgradeProxy is Script {
         console.log("Proxy upgraded successfully!");
 
         // Try to register operator if not already registered
-        SwapManager swapManager = SwapManager(proxyAddress);
-        if (!swapManager.isOperatorRegistered(deployer)) {
+        TradeManager tradeManager = TradeManager(proxyAddress);
+        if (!tradeManager.isOperatorRegistered(deployer)) {
             console.log("Registering operator...");
-            swapManager.registerOperatorForBatches();
+            tradeManager.registerOperatorForBatches();
             console.log("Operator registered!");
         } else {
             console.log("Operator already registered");
@@ -49,7 +49,7 @@ contract UpgradeProxy is Script {
         vm.stopBroadcast();
 
         console.log("\n=== Upgrade Complete ===");
-        console.log("SwapManager proxy:", proxyAddress);
+        console.log("TradeManager proxy:", proxyAddress);
         console.log("New implementation:", newImplementation);
         console.log("Operator registered:", deployer);
     }

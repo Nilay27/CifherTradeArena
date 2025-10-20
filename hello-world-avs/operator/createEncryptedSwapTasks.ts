@@ -273,13 +273,13 @@ async function main() {
 
     config = loadDeploymentConfig(chainId);
     UNIVERSAL_PRIVACY_HOOK = config.universalPrivacyHook;
-    SWAP_MANAGER_ADDRESS = config.swapManager;
+    SWAP_MANAGER_ADDRESS = config.tradeManager;
     USDC_ADDRESS = config.mockUSDC;
     USDT_ADDRESS = config.mockUSDT;
 
     console.log("\nLoaded deployment addresses:");
     console.log("  UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
-    console.log("  SwapManager:", SWAP_MANAGER_ADDRESS);
+    console.log("  TradeManager:", SWAP_MANAGER_ADDRESS);
     console.log("  Mock USDC:", USDC_ADDRESS);
     console.log("  Mock USDT:", USDT_ADDRESS);
     console.log("  Pool ID:", config.poolId);

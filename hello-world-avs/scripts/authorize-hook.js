@@ -23,7 +23,7 @@ async function main() {
         fs.readFileSync(path.resolve(__dirname, '../abis/SwapManager.json'), 'utf8')
     );
     
-    const swapManager = new ethers.Contract(
+    const tradeManager = new ethers.Contract(
         swapManagerDeployment.addresses.SwapManager,
         swapManagerABI,
         wallet
@@ -35,7 +35,7 @@ async function main() {
     console.log('MockPrivacyHook address:', mockHookAddress);
     
     // Check if already authorized
-    const isAuthorized = await swapManager.authorizedHooks(mockHookAddress);
+    const isAuthorized = await tradeManager.authorizedHooks(mockHookAddress);
     
     if (isAuthorized) {
         console.log('✅ MockPrivacyHook is already authorized');
@@ -43,7 +43,7 @@ async function main() {
         console.log('Authorizing MockPrivacyHook...');
         
         try {
-            const tx = await swapManager.authorizeHook(mockHookAddress);
+            const tx = await tradeManager.authorizeHook(mockHookAddress);
             console.log('Transaction sent:', tx.hash);
             await tx.wait();
             console.log('✅ MockPrivacyHook authorized successfully!');
@@ -53,7 +53,7 @@ async function main() {
     }
     
     // Verify authorization
-    const isNowAuthorized = await swapManager.authorizedHooks(mockHookAddress);
+    const isNowAuthorized = await tradeManager.authorizedHooks(mockHookAddress);
     console.log('Final authorization status:', isNowAuthorized);
 }
 

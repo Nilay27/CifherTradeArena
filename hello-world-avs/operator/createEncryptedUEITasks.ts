@@ -1,11 +1,11 @@
 /**
  * Create Encrypted UEI Tasks - Simplified for Testing
  *
- * This script submits a simple USDC transfer UEI to the SwapManager
+ * This script submits a simple USDC transfer UEI to the TradeManager
  * Flow:
  * 1. Encrypt: decoder (address), target (USDC), selector (transfer), args [recipient, amount]
  *    - Each component encrypted with correct type (Address, Address, Uint32, Uint256[])
- * 2. Submit to SwapManager.submitEncryptedUEI(decoder, target, selector, args, deadline)
+ * 2. Submit to TradeManager.submitEncryptedUEI(decoder, target, selector, args, deadline)
  *    - Each parameter is a CoFheItem struct with correct utype
  * 3. Wait for batch finalization (handled by keeper or manual call)
  * 4. Operator will decrypt and process (handled by ueiProcessor.ts)
@@ -126,21 +126,21 @@ async function createUSDCTransferUEI() {
         const chainId = Number(network.chainId);
         const config = loadDeploymentConfig(chainId);
 
-        SWAP_MANAGER = config.swapManager;
+        SWAP_MANAGER = config.tradeManager;
         BORING_VAULT = config.boringVault || '0x0000000000000000000000000000000000000000';
         USDC_ADDRESS = config.mockUSDC;
 
         console.log(`Network: ${config.network} (Chain ID: ${chainId})`);
         console.log("👤 Submitter wallet:", wallet.address);
         console.log("💰 Boring Vault:", BORING_VAULT);
-        console.log("🏦 SwapManager:", SWAP_MANAGER);
+        console.log("🏦 TradeManager:", SWAP_MANAGER);
         console.log("💵 USDC:", USDC_ADDRESS);
 
-        // Load SwapManager ABI
+        // Load TradeManager ABI
         const swapManagerAbi = JSON.parse(
-            fs.readFileSync('./abis/SwapManager.json', 'utf8')
+            fs.readFileSync('./abis/TradeManager.json', 'utf8')
         );
-        const swapManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, wallet);
+        const tradeManager = new ethers.Contract(SWAP_MANAGER, swapManagerAbi, wallet);
 
         // Simple USDC transfer parameters
         // transfer(address to, uint128 amount) - Using Uint128 to avoid deprecated Uint256
@@ -217,16 +217,16 @@ async function createUSDCTransferUEI() {
             console.log(`    [${i}]: utype=${arg.utype} (${typeName})`);
         });
 
-        // Submit to SwapManager
+        // Submit to TradeManager
         const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
 
-        console.log("\n📤 Submitting UEI to SwapManager...");
+        console.log("\n📤 Submitting UEI to TradeManager...");
         console.log(`  Deadline: ${new Date(deadline * 1000).toLocaleString()}`);
 
-        // Submit to SwapManager with DynamicInE structs
+        // Submit to TradeManager with DynamicInE structs
         // Each encrypted component is passed with its original type preserved
         // Args can be mixed types (Address, Uint128, etc.) - NO Uint256!
-        const tx = await swapManager.submitEncryptedUEI(
+        const tx = await tradeManager.submitEncryptedUEI(
             decoderStruct,   // InEaddress
             targetStruct,    // InEaddress
             selectorStruct,  // InEuint32
@@ -244,7 +244,7 @@ async function createUSDCTransferUEI() {
         // Extract intent ID from TradeSubmitted event
         const tradeSubmittedEvent = receipt.logs.find((log: any) => {
             try {
-                const parsed = swapManager.interface.parseLog(log);
+                const parsed = tradeManager.interface.parseLog(log);
                 return parsed && parsed.name === 'TradeSubmitted';
             } catch {
                 return false;
@@ -252,7 +252,7 @@ async function createUSDCTransferUEI() {
         });
 
         if (tradeSubmittedEvent) {
-            const parsed = swapManager.interface.parseLog(tradeSubmittedEvent);
+            const parsed = tradeManager.interface.parseLog(tradeSubmittedEvent);
             const tradeId = parsed?.args[0];
             const batchId = parsed?.args[2];
 
@@ -263,7 +263,7 @@ async function createUSDCTransferUEI() {
             console.log(`  Deadline: ${new Date(Number(parsed?.args[4]) * 1000).toLocaleString()}`);
 
             // Check task details
-            const task = await swapManager.getUEITask(tradeId);
+            const task = await tradeManager.getUEITask(tradeId);
             console.log("\n📊 Task Status:");
             console.log(`  Status: ${['Pending', 'Processing', 'Executed', 'Failed', 'Expired'][task.status]}`);
             console.log(`  Batch ID: ${task.batchId}`);
@@ -277,7 +277,7 @@ async function createUSDCTransferUEI() {
             await new Promise(resolve => setTimeout(resolve, 5000));
 
             console.log("\n🔨 Finalizing batch as admin...");
-            const finalizeTx = await swapManager.finalizeUEIBatch();
+            const finalizeTx = await tradeManager.finalizeUEIBatch();
             console.log(`  Transaction hash: ${finalizeTx.hash}`);
             console.log("  Waiting for confirmation...");
 
@@ -287,7 +287,7 @@ async function createUSDCTransferUEI() {
             // Extract UEIBatchFinalized event
             const batchFinalizedEvent = finalizeReceipt.logs.find((log: any) => {
                 try {
-                    const parsed = swapManager.interface.parseLog(log);
+                    const parsed = tradeManager.interface.parseLog(log);
                     return parsed && parsed.name === 'UEIBatchFinalized';
                 } catch {
                     return false;
@@ -295,7 +295,7 @@ async function createUSDCTransferUEI() {
             });
 
             if (batchFinalizedEvent) {
-                const parsed = swapManager.interface.parseLog(batchFinalizedEvent);
+                const parsed = tradeManager.interface.parseLog(batchFinalizedEvent);
                 const finalizedBatchId = parsed?.args[0];
                 const selectedOperators = parsed?.args[1];
                 const finalizedAt = parsed?.args[2];

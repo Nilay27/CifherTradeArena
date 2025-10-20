@@ -5,7 +5,7 @@ use eigensdk::common::get_signer;
 use eigensdk::logging::{get_logger, init_logger, log_level::LogLevel};
 use eyre::Result;
 use swap_manager_utils::get_anvil_swap_manager_deployment_data;
-use swap_manager_utils::SwapManager::SwapManager;
+use swap_manager_utils::TradeManager::TradeManager;
 use rand::Rng;
 use std::env;
 use std::sync::LazyLock;
@@ -37,7 +37,7 @@ pub async fn create_new_task(rpc_url: &str, task_name: &str) -> Result<()> {
     let swap_manager_contract_address: Address =
         hw_data.addresses.swap_manager_service_manager.parse()?;
     let pr = get_signer(&KEY.clone(), rpc_url);
-    let swap_manager_contract = SwapManager::new(swap_manager_contract_address, pr);
+    let swap_manager_contract = TradeManager::new(swap_manager_contract_address, pr);
 
     let tx = swap_manager_contract
         .createNewTask(task_name.to_string())

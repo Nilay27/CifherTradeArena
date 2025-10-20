@@ -489,7 +489,7 @@
   },
   {
     "type": "function",
-    "name": "swapManager",
+    "name": "tradeManager",
     "inputs": [],
     "outputs": [
       {

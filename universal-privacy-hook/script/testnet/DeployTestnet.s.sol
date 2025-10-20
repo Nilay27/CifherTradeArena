@@ -130,13 +130,13 @@ contract DeployTestnet is Script {
         hook.setBatchInterval(batchInterval);
         console.log("Batch interval set to:", batchInterval, "seconds");
 
-        // Set SwapManager address if available from environment
-        address swapManager = config.swapManager;
-        if (swapManager != address(0)) {
-            hook.setSwapManager(swapManager);
-            console.log("SwapManager set to:", swapManager);
+        // Set TradeManager address if available from environment
+        address tradeManager = config.tradeManager;
+        if (tradeManager != address(0)) {
+            hook.setTradeManager(tradeManager);
+            console.log("TradeManager set to:", tradeManager);
         } else {
-            console.log("Warning: SWAP_MANAGER not set. Set it later with hook.setSwapManager()");
+            console.log("Warning: SWAP_MANAGER not set. Set it later with hook.setTradeManager()");
         }
     }
 

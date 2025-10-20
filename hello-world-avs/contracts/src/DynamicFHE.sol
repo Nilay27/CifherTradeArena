@@ -3,7 +3,7 @@ pragma solidity ^0.8.9;
 
 import {FHE, InEbool, InEuint8, InEuint16, InEuint32, InEuint64, InEuint128, InEaddress} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {ebool, euint8, euint16, euint32, euint64, euint128, eaddress} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
-import {DynamicInE} from "./ISwapManager.sol";
+import {DynamicInE} from "./ITradeManager.sol";
 
 /**
  * @title DynamicFHE
