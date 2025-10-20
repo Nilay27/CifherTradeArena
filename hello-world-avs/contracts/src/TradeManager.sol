@@ -15,17 +15,7 @@ import {DynamicFHE} from "./DynamicFHE.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import {IAllocationManager} from "@eigenlayer/contracts/interfaces/IAllocationManager.sol";
 // Fhenix CoFHE imports
-import {FHE, InEuint128, InEuint32, InEuint256, InEaddress, euint128, euint256, euint32, eaddress} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
-
-// Currency type wrapper to match Uniswap V4
-type Currency is address;
-
-// Struct for AVS to submit InternalTransfers with InEuint128 (before loading)
-struct InternalTransferInput {
-    address to;
-    address encToken;
-    InEuint128 encAmount;  // AVS provides InEuint128 with signature
-}
+import {FHE, InEuint128, InEuint32, InEuint256, InEuint64, InEaddress, euint128, euint256, euint64, euint32, eaddress, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 // Simple struct for emitting internal FHE handles with type information
 struct HandleWithType {
@@ -33,35 +23,10 @@ struct HandleWithType {
     uint8 utype;
 }
 
-// Interface for the UniversalPrivacyHook (Fhenix CoFHE version)
-interface IUniversalPrivacyHook {
-    struct InternalTransfer {
-        address to;
-        address encToken;
-        euint128 encAmount;  // Hook receives loaded euint128
-    }
-
-    struct UserShare {
-        address user;
-        uint128 shareNumerator;
-        uint128 shareDenominator;
-    }
-
-    function settleBatch(
-        bytes32 batchId,
-        InternalTransfer[] calldata internalTransfers,
-        uint128 netAmountIn,
-        Currency tokenIn,
-        Currency tokenOut,
-        address outputToken,
-        UserShare[] calldata userShares
-    ) external;
-}
-
 /**
- * @title TradeManager - AVS for batch processing of encrypted trade intents
- * @notice Manages operator selection, FHE decryption, and batch settlement
- * @dev Operators decrypt intents, match orders off-chain, and submit consensus-based settlements
+ * @title TradeManager - AVS for encrypted strategy tournaments (CipherTradeArena)
+ * @notice Manages operator selection, FHE decryption, and strategy simulation
+ * @dev Operators decrypt strategies, simulate off-chain, and post encrypted APYs
  */
 contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     using ECDSAUpgradeable for bytes32;
@@ -75,18 +40,6 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     address[] public registeredOperators;
     mapping(address => bool) public operatorRegistered;
     mapping(address => uint256) public operatorIndex;
-
-    // Batch management
-    mapping(bytes32 => Batch) public batches;
-    mapping(bytes32 => mapping(address => bool)) public operatorSelectedForBatch;
-
-    // Hook authorization
-    mapping(address => bool) public authorizedHooks;
-
-    // Using settlement structures from IUniversalPrivacyHook interface
-
-    // Max time for operators to respond with settlement
-    uint32 public immutable MAX_RESPONSE_INTERVAL_BLOCKS;
 
     // ========================================= UEI STATE VARIABLES =========================================
 
@@ -128,18 +81,12 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         _;
     }
     
-    modifier onlyAuthorizedHook() {
-        require(authorizedHooks[msg.sender], "Unauthorized hook");
-        _;
-    }
-
     constructor(
         address _avsDirectory,
         address _stakeRegistry,
         address _rewardsCoordinator,
         address _delegationManager,
         address _allocationManager,
-        uint32 _maxResponseIntervalBlocks,
         address _admin
     )
         ECDSAServiceManagerBase(
@@ -150,30 +97,12 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
             _allocationManager
         )
     {
-        MAX_RESPONSE_INTERVAL_BLOCKS = _maxResponseIntervalBlocks;
         admin = _admin;
-
-        // Note: For proxy deployments, call initialize() separately
-        // For non-upgradeable deployments, the constructor is sufficient
     }
 
     function initialize(address initialOwner, address _rewardsInitiator) external initializer {
         __ServiceManagerBase_init(initialOwner, _rewardsInitiator);
-        admin = initialOwner; // Set admin to the owner during initialization
-    }
-    
-    /**
-     * @notice Authorize a hook to submit batches
-     */
-    function authorizeHook(address hook) external onlyAdmin {
-        authorizedHooks[hook] = true;
-    }
-    
-    /**
-     * @notice Revoke hook authorization
-     */
-    function revokeHook(address hook) external onlyAdmin {
-        authorizedHooks[hook] = false;
+        admin = initialOwner;
     }
 
     /**
@@ -186,214 +115,25 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     }
 
     /**
-     * @notice Register an operator for batch processing
+     * @notice Register an operator for epoch processing
      */
-    function registerOperatorForBatches() external {
-        // TEMP: Bypassing stake registry check for testing
-        // require(
-        //     ECDSAStakeRegistry(stakeRegistry).operatorRegistered(msg.sender),
-        //     "Must be registered with stake registry first"
-        // );
+    function registerOperator() external {
         require(!operatorRegistered[msg.sender], "Operator already registered");
 
         operatorRegistered[msg.sender] = true;
         operatorIndex[msg.sender] = registeredOperators.length;
         registeredOperators.push(msg.sender);
-    }
 
-    // Removed deregisterOperatorFromBatches - operators should stay registered
+        emit OperatorRegistered(msg.sender);
+    }
 
     /**
-     * @notice Called by hook when batch is ready for processing
-     * @param batchId The unique batch identifier
-     * @param batchData Encoded batch data from UniversalPrivacyHook
+     * @notice Get the total number of registered operators
      */
-    function finalizeBatch(
-        bytes32 batchId,
-        bytes calldata batchData
-    ) external override onlyAuthorizedHook {
-        require(batches[batchId].status == BatchStatus.Collecting ||
-                batches[batchId].batchId == bytes32(0), "Invalid batch status");
-
-        // Decode batch data from UniversalPrivacyHook format:
-        // abi.encode(batchId, batch.intentIds, poolId, address(this), encryptedIntents)
-        (
-            bytes32 decodedBatchId,
-            bytes32[] memory intentIds,
-            bytes32 poolId,  // Changed from address to bytes32 to match PoolId type
-            address hookAddress,
-            bytes[] memory encryptedIntents
-        ) = abi.decode(batchData, (bytes32, bytes32[], bytes32, address, bytes[]));
-
-        // Verify batch ID matches
-        require(decodedBatchId == batchId, "Batch ID mismatch");
-        require(hookAddress == msg.sender, "Hook address mismatch");
-
-        // Select operators for this batch
-        address[] memory selectedOps = _selectOperatorsForBatch(batchId);
-
-        // Create batch record
-        batches[batchId] = Batch({
-            batchId: batchId,
-            intentIds: intentIds,
-            poolId: poolId,
-            hook: msg.sender,
-            createdBlock: uint32(block.number),
-            finalizedBlock: uint32(block.number),
-            status: BatchStatus.Processing
-        });
-
-        // Process encrypted intents and grant FHE permissions
-        for (uint256 i = 0; i < encryptedIntents.length; i++) {
-            // Decode intent data: (intentId, owner, tokenIn, tokenOut, encAmount, deadline)
-            (
-                bytes32 intentId,
-                address owner,
-                address tokenIn,
-                address tokenOut,
-                uint256 encAmountHandle, // This is euint128.unwrap() from the hook
-                uint256 deadline
-            ) = abi.decode(encryptedIntents[i], (bytes32, address, address, address, uint256, uint256));
-
-            // Convert handle back to euint128 (no FHE.fromExternal needed - already internal)
-            euint128 encAmount = euint128.wrap(encAmountHandle);
-
-            // Grant permission to each selected operator
-            for (uint256 j = 0; j < selectedOps.length; j++) {
-                FHE.allow(encAmount, selectedOps[j]);
-            }
-        }
-
-        // Mark selected operators
-        for (uint256 i = 0; i < selectedOps.length; i++) {
-            operatorSelectedForBatch[batchId][selectedOps[i]] = true;
-            emit OperatorSelectedForBatch(batchId, selectedOps[i]);
-        }
-
-        emit BatchFinalized(batchId, batchData);
-    }
-    
-    /**
-     * @notice Submit batch settlement after off-chain matching
-     * @dev TradeManager loads InEuint128 to euint128 before forwarding to Hook
-     */
-    function submitBatchSettlement(
-        bytes32 batchId,
-        InternalTransferInput[] calldata internalTransfersInput,
-        uint128 netAmountIn,
-        address tokenIn,
-        address tokenOut,
-        address outputToken,
-        IUniversalPrivacyHook.UserShare[] calldata userShares,
-        bytes[] calldata operatorSignatures
-    ) external onlyOperator {
-        Batch storage batch = batches[batchId];
-        require(batch.status == BatchStatus.Processing, "Batch not processing");
-        require(operatorSignatures.length >= MIN_ATTESTATIONS, "Insufficient signatures");
-
-        // Hash and signature verification
-        // Use simpler hash to avoid abi.encode calldata array encoding issues
-        {
-            bytes32 messageHash = keccak256(abi.encodePacked(
-                batchId,
-                netAmountIn,
-                tokenIn,
-                tokenOut,
-                outputToken
-            ));
-            bytes32 ethSigned = messageHash.toEthSignedMessageHash();
-
-            uint256 valid;
-            for (uint256 i; i < operatorSignatures.length; ++i) {
-                address signer = ethSigned.recover(operatorSignatures[i]);
-                if (operatorSelectedForBatch[batchId][signer]) ++valid;
-            }
-            require(valid >= MIN_ATTESTATIONS, "Insufficient valid signatures");
-        }
-
-        // Update batch status
-        batch.status = BatchStatus.Settled;
-
-        // Load InEuint128 to euint128 in TradeManager (msg.sender context)
-        // This ensures FHE verification happens with TradeManager as msg.sender
-        IUniversalPrivacyHook.InternalTransfer[] memory internalTransfers =
-            new IUniversalPrivacyHook.InternalTransfer[](internalTransfersInput.length);
-
-        for (uint256 i = 0; i < internalTransfersInput.length; i++) {
-            euint128 loadedAmount = FHE.asEuint128(internalTransfersInput[i].encAmount);
-
-            // Allow Hook to use and grant permissions further (like Hook does for TradeManager in _finalizeBatch)
-            FHE.allowTransient(loadedAmount, batch.hook);
-
-            internalTransfers[i] = IUniversalPrivacyHook.InternalTransfer({
-                to: internalTransfersInput[i].to,
-                encToken: internalTransfersInput[i].encToken,
-                encAmount: loadedAmount
-            });
-        }
-
-        // Forward to hook with loaded euint128 values
-        IUniversalPrivacyHook(batch.hook).settleBatch(
-            batchId,
-            internalTransfers,
-            netAmountIn,
-            Currency.wrap(tokenIn),
-            Currency.wrap(tokenOut),
-            outputToken,
-            userShares
-        );
-
-        emit BatchSettled(batchId, true);
-    }
-    
-    /**
-     * @notice Deterministically select operators for a batch
-     */
-    function _selectOperatorsForBatch(bytes32 batchId) internal view returns (address[] memory) {
-        uint256 operatorCount = registeredOperators.length;
-        
-        // If not enough operators, return all available
-        if (operatorCount <= COMMITTEE_SIZE) {
-            return registeredOperators;
-        }
-        
-        // Use batch ID and block data for deterministic randomness
-        uint256 seed = uint256(keccak256(abi.encode(block.prevrandao, block.number, batchId)));
-        
-        address[] memory selectedOps = new address[](COMMITTEE_SIZE);
-        bool[] memory selected = new bool[](operatorCount);
-        
-        for (uint256 i = 0; i < COMMITTEE_SIZE; i++) {
-            uint256 randomIndex = uint256(keccak256(abi.encode(seed, i))) % operatorCount;
-            
-            // Linear probing to avoid duplicates
-            while (selected[randomIndex]) {
-                randomIndex = (randomIndex + 1) % operatorCount;
-            }
-            
-            selected[randomIndex] = true;
-            selectedOps[i] = registeredOperators[randomIndex];
-        }
-        
-        return selectedOps;
-    }
-    
-    // View functions
-    function getBatch(bytes32 batchId) external view override returns (Batch memory) {
-        return batches[batchId];
-    }
-    
-    function getOperatorCount() external view override returns (uint256) {
+    function getOperatorCount() external view returns (uint256) {
         return registeredOperators.length;
     }
-    
-    function isOperatorSelectedForBatch(
-        bytes32 batchId, 
-        address operator
-    ) external view override returns (bool) {
-        return operatorSelectedForBatch[batchId][operator];
-    }
-    
+
     // IServiceManager compliance functions (unused but required)
     function addPendingAdmin(address newAdmin) external onlyAdmin {}
     function removePendingAdmin(address pendingAdmin) external onlyAdmin {}
@@ -401,10 +141,41 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     function setAppointee(address appointee, address target, bytes4 selector) external onlyAdmin {}
     function removeAppointee(address appointee, address target, bytes4 selector) external onlyAdmin {}
     function deregisterOperatorFromOperatorSets(address operator, uint32[] memory operatorSetIds) external {}
-    
-    // Removed legacy interface compliance - not needed anymore
 
+    event OperatorRegistered(address indexed operator);
 
+    /**
+     * @notice Deterministically select operators for an epoch
+     * @dev Used for epoch-based operator selection in CipherTradeArena
+     */
+    function _selectOperatorsForEpoch(uint256 epochNumber) internal view returns (address[] memory) {
+        uint256 operatorCount = registeredOperators.length;
+
+        // If not enough operators, return all available
+        if (operatorCount <= COMMITTEE_SIZE) {
+            return registeredOperators;
+        }
+
+        // Use epoch number for deterministic randomness
+        uint256 seed = uint256(keccak256(abi.encode(block.prevrandao, block.number, epochNumber)));
+
+        address[] memory selectedOps = new address[](COMMITTEE_SIZE);
+        bool[] memory selected = new bool[](operatorCount);
+
+        for (uint256 i = 0; i < COMMITTEE_SIZE; i++) {
+            uint256 randomIndex = uint256(keccak256(abi.encode(seed, i))) % operatorCount;
+
+            // Linear probing to avoid duplicates
+            while (selected[randomIndex]) {
+                randomIndex = (randomIndex + 1) % operatorCount;
+            }
+
+            selected[randomIndex] = true;
+            selectedOps[i] = registeredOperators[randomIndex];
+        }
+
+        return selectedOps;
+    }
 
     // ============================= UEI FUNCTIONALITY =============================
     
@@ -587,8 +358,8 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         batch.finalized = true;
         batch.finalizedAt = block.timestamp;
 
-        // Select operators using existing deterministic selection
-        address[] memory selectedOps = _selectOperatorsForBatch(batchId);
+        // Select operators using deterministic selection (use batch counter as seed)
+        address[] memory selectedOps = _selectOperatorsForEpoch(currentBatchCounter);
         batch.selectedOperators = selectedOps;
 
         // Grant decrypt permissions to selected operators for all UEIs in this batch

@@ -86,7 +86,6 @@ library TradeManagerDeploymentLib {
                 core.rewardsCoordinator,
                 core.delegationManager,
                 core.allocationManager,
-                4,
                 owner  // Pass the owner as admin
             )
         );

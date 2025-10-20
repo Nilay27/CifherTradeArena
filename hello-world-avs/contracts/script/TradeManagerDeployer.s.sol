@@ -87,11 +87,6 @@ contract TradeManagerDeployer is Script, Test {
         tradeManagerDeployment.strategy = address(tradeManagerStrategy);
         tradeManagerDeployment.token = address(token);
 
-        // Set the TradeManager address in UniversalPrivacyHook
-        console2.log("Setting TradeManager in UniversalPrivacyHook...");
-        IUniversalPrivacyHook(UNIVERSAL_PRIVACY_HOOK).setTradeManager(tradeManagerDeployment.TradeManager);
-        console2.log("TradeManager set successfully!");
-
         // Check who the admin is
         console2.log("Checking admin of TradeManager...");
         address currentAdmin = TradeManager(tradeManagerDeployment.TradeManager).admin();
@@ -99,11 +94,6 @@ contract TradeManagerDeployer is Script, Test {
         console2.log("Deployer address:", deployer);
         console2.log("RewardsOwner address:", rewardsOwner);
         console2.log("msg.sender:", msg.sender);
-
-        // Also authorize the hook in TradeManager
-        console2.log("Authorizing UniversalPrivacyHook in TradeManager...");
-        TradeManager(tradeManagerDeployment.TradeManager).authorizeHook(UNIVERSAL_PRIVACY_HOOK);
-        console2.log("Hook authorized successfully!");
 
         vm.stopBroadcast();
         verifyDeployment();

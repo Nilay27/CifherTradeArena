@@ -58,29 +58,16 @@ contract DeployTradeManagerDirect is Script {
             coreDeployment.rewardsCoordinator,
             coreDeployment.delegationManager,
             coreDeployment.allocationManager,
-            4, // MAX_RESPONSE_INTERVAL_BLOCKS
             swapManagerConfig.rewardsOwner // admin
         );
 
         console2.log("\nTradeManager deployed at:", address(tradeManager));
-
-        // Note: For non-upgradeable contracts, initialization happens in constructor
-        // No need to call initialize() separately
 
         // Verify admin
         console2.log("\nVerifying admin...");
         address currentAdmin = tradeManager.admin();
         console2.log("Current admin:", currentAdmin);
         require(currentAdmin == swapManagerConfig.rewardsOwner, "Admin mismatch");
-
-        // Authorize the UniversalPrivacyHook
-        console2.log("\nAuthorizing UniversalPrivacyHook in TradeManager...");
-        tradeManager.authorizeHook(UNIVERSAL_PRIVACY_HOOK);
-        console2.log("Hook authorized");
-
-
-        IUniversalPrivacyHook(UNIVERSAL_PRIVACY_HOOK).setTradeManager(address(tradeManager));
-        console2.log("TradeManager set in hook");
 
         vm.stopBroadcast();
 

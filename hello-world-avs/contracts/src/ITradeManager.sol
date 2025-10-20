@@ -15,47 +15,11 @@ struct DynamicInE {
 }
 
 interface ITradeManager {
-    // ============ BATCH SYSTEM ============
-    
-    // Batch structures (removed - not used with hook's settlement structure)
-    
-    struct Batch {
-        bytes32 batchId;
-        bytes32[] intentIds;
-        bytes32 poolId;  // Changed from address to bytes32 to match PoolId type
-        address hook;
-        uint32 createdBlock;
-        uint32 finalizedBlock;
-        BatchStatus status;
-    }
-    
-    enum BatchStatus {
-        Collecting,
-        Processing,
-        Settled,
-        Failed
-    }
+    // ============ OPERATOR MANAGEMENT ============
 
-    // Batch events
-    event BatchSettlementSubmitted(bytes32 indexed batchId, uint256 internalizedCount, uint256 netSwapCount);
-    event OperatorSelectedForBatch(bytes32 indexed batchId, address indexed operator);
-
-    // Batch functions
-    function finalizeBatch(
-        bytes32 batchId,
-        bytes calldata batchData
-    ) external;
-    
-    // Batch view functions
-    function getBatch(bytes32 batchId) external view returns (Batch memory);
     function getOperatorCount() external view returns (uint256);
-    function isOperatorSelectedForBatch(bytes32 batchId, address operator) external view returns (bool);
     function isOperatorRegistered(address operator) external view returns (bool);
-    function registerOperatorForBatches() external;
-
-    // Batch events
-    event BatchFinalized(bytes32 indexed batchId, bytes batchData);
-    event BatchSettled(bytes32 indexed batchId, bool success);
+    function registerOperator() external;
 
     // ============ UEI (Universal Encrypted Intent) SYSTEM ============
 
