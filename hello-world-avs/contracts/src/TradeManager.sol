@@ -50,13 +50,11 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     mapping(uint256 => address[]) public epochSubmitters; // List of submitters per epoch
     mapping(uint256 => mapping(address => StrategyPerf)) public strategies; // epoch => submitter => strategy
 
-    // Epoch state enum
+    // Epoch state enum (simplified)
     enum EpochState {
-        OPEN,              // Accepting strategy submissions
-        CLOSED,            // Submissions closed, operators simulating
-        RESULTS_POSTED,    // Encrypted APYs posted
-        FINALIZED,         // APYs decrypted, winners selected
-        EXECUTED           // Capital deployed
+        OPEN,       // Accepting submissions, operators posting APYs in real-time
+        FINALIZED,  // APYs decrypted, winners selected
+        EXECUTED    // Capital deployed via BoringVault
     }
 
     // Strategy node: single encrypted DeFi action
@@ -219,21 +217,17 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         uint256 submittedAt
     );
 
-    event EpochClosed(
+    event APYReported(
         uint256 indexed epochNumber,
-        address[] selectedOperators,
-        uint256 submitterCount
-    );
-
-    event EncryptedAPYsPosted(
-        uint256 indexed epochNumber,
-        uint256 strategyCount
+        address indexed submitter,
+        address indexed operator,
+        uint256 timestamp
     );
 
     event EpochFinalized(
         uint256 indexed epochNumber,
         address[] winners,
-        uint256[] apys,
+        uint256[] decryptedAPYs,
         uint256[] allocations
     );
 
@@ -443,6 +437,46 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         epochSubmitters[currentEpochNumber].push(msg.sender);
 
         emit StrategySubmitted(currentEpochNumber, msg.sender, encoders.length, block.timestamp);
+    }
+
+    /**
+     * @notice Operator reports encrypted APY for a trader's strategy
+     * @dev Can be called anytime during OPEN state as operators simulate in real-time
+     * @param epochNumber The epoch number
+     * @param trader The trader whose strategy was simulated
+     * @param encryptedAPY The encrypted APY result from simulation
+     */
+    function reportEncryptedAPY(
+        uint256 epochNumber,
+        address trader,
+        InEuint256 calldata encryptedAPY
+    ) external onlyOperator {
+        require(epochNumber <= currentEpochNumber, "Invalid epoch");
+        EpochData storage epoch = epochs[epochNumber];
+        require(epoch.state == EpochState.OPEN, "Epoch not open");
+        require(hasSubmittedStrategy[epochNumber][trader], "No strategy submitted");
+
+        // Verify operator is selected for this epoch
+        bool isSelected = false;
+        for (uint256 i = 0; i < epoch.selectedOperators.length; i++) {
+            if (epoch.selectedOperators[i] == msg.sender) {
+                isSelected = true;
+                break;
+            }
+        }
+        require(isSelected, "Operator not selected for this epoch");
+
+        // Load and store encrypted APY
+        StrategyPerf storage strategy = strategies[epochNumber][trader];
+        euint256 apy = FHE.asEuint256(encryptedAPY);
+        FHE.allowThis(apy);
+
+        // Grant trader permission to decrypt their own APY (for viewMyAPY)
+        FHE.allow(apy, trader);
+
+        strategy.encryptedAPY = apy;
+
+        emit APYReported(epochNumber, trader, msg.sender, block.timestamp);
     }
 
     // ============================= UEI FUNCTIONALITY =============================
