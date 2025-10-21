@@ -64,7 +64,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         eaddress encoder;    // Sanitizer/decoder address (encrypted)
         eaddress target;     // Protocol address: Aave, Compound, etc. (encrypted)
         euint32 selector;    // Function selector as uint (encrypted)
-        euint256[] args;     // All function arguments as euint256 (encrypted)
+        HandleWithType[] args;  // Function arguments with type info (handle + utype)
     }
 
     // Strategy performance tracking
@@ -303,6 +303,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         require(epochDuration > 0, "Duration must be positive");
         require(notionalPerTrader > 0, "Notional must be positive");
         require(allocatedCapital > 0, "Allocated capital must be positive");
+        require(registeredOperators.length > 0, "No operators registered");
 
         // Increment epoch counter
         currentEpochNumber++;
@@ -320,6 +321,15 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         uint64 startTime = uint64(block.timestamp);
         uint64 endTime = startTime + epochDuration;
 
+        // Select operators for this epoch
+        address[] memory selectedOps = _selectOperatorsForEpoch(epochNumber);
+
+        // Grant selected operators permission to decrypt simulation times
+        for (uint256 i = 0; i < selectedOps.length; i++) {
+            FHE.allow(simStart, selectedOps[i]);
+            FHE.allow(simEnd, selectedOps[i]);
+        }
+
         epochs[epochNumber] = EpochData({
             encSimStartTime: simStart,
             encSimEndTime: simEnd,
@@ -329,7 +339,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
             notionalPerTrader: notionalPerTrader,
             allocatedCapital: allocatedCapital,
             state: EpochState.OPEN,
-            selectedOperators: new address[](0), // Will be set in closeEpoch
+            selectedOperators: selectedOps,
             createdAt: block.timestamp
         });
 
@@ -341,6 +351,98 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
             notionalPerTrader,
             allocatedCapital
         );
+    }
+
+    /**
+     * @notice Submit encrypted strategy for current epoch
+     * @dev Strategy nodes contain encrypted DeFi operations (encoder, target, selector, args)
+     * @param encoders Array of encrypted encoder/sanitizer addresses
+     * @param targets Array of encrypted target protocol addresses
+     * @param selectors Array of encrypted function selectors
+     * @param nodeArgs Array of arrays containing dynamically-typed encrypted arguments for each node
+     */
+    function submitEncryptedStrategy(
+        InEaddress[] calldata encoders,
+        InEaddress[] calldata targets,
+        InEuint32[] calldata selectors,
+        DynamicInE[][] calldata nodeArgs
+    ) external {
+        require(currentEpochNumber > 0, "No active epoch");
+        EpochData storage epoch = epochs[currentEpochNumber];
+
+        require(epoch.state == EpochState.OPEN, "Epoch not open for submissions");
+        require(block.timestamp <= epoch.epochEndTime, "Epoch submission period ended");
+        require(!hasSubmittedStrategy[currentEpochNumber][msg.sender], "Strategy already submitted");
+
+        // Validate all arrays have same length
+        require(encoders.length == targets.length, "Array length mismatch");
+        require(encoders.length == selectors.length, "Array length mismatch");
+        require(encoders.length == nodeArgs.length, "Array length mismatch");
+        require(encoders.length > 0, "Strategy must have at least one node");
+
+        // Create strategy performance record
+        StrategyPerf storage strategy = strategies[currentEpochNumber][msg.sender];
+        strategy.submitter = msg.sender;
+        strategy.submittedAt = block.timestamp;
+        strategy.finalized = false;
+
+        // Process each strategy node
+        for (uint256 i = 0; i < encoders.length; i++) {
+            // Convert input encrypted types to internal types
+            eaddress encoder = FHE.asEaddress(encoders[i]);
+            eaddress target = FHE.asEaddress(targets[i]);
+            euint32 selector = FHE.asEuint32(selectors[i]);
+
+            // Grant contract permission to use encrypted values
+            FHE.allowThis(encoder);
+            FHE.allowThis(target);
+            FHE.allowThis(selector);
+
+            // Grant selected operators permission to decrypt for simulation
+            for (uint256 k = 0; k < epoch.selectedOperators.length; k++) {
+                FHE.allow(encoder, epoch.selectedOperators[k]);
+                FHE.allow(target, epoch.selectedOperators[k]);
+                FHE.allow(selector, epoch.selectedOperators[k]);
+            }
+
+            // Process dynamic encrypted arguments
+            HandleWithType[] memory args = new HandleWithType[](nodeArgs[i].length);
+            for (uint256 j = 0; j < nodeArgs[i].length; j++) {
+                // Load dynamic encrypted input and get unwrapped handle
+                uint256 handle = DynamicFHE.loadDynamic(nodeArgs[i][j]);
+
+                // Wrap as euint256 for permissions
+                euint256 argHandle = euint256.wrap(handle);
+                FHE.allowThis(argHandle);
+
+                // Store as HandleWithType
+                args[j] = HandleWithType({
+                    handle: handle,
+                    utype: nodeArgs[i][j].utype
+                });
+
+                // Grant selected operators permission to decrypt arguments
+                for (uint256 k = 0; k < epoch.selectedOperators.length; k++) {
+                    FHE.allow(argHandle, epoch.selectedOperators[k]);
+                }
+            }
+
+            // Create and store strategy node
+            StrategyNode memory node = StrategyNode({
+                encoder: encoder,
+                target: target,
+                selector: selector,
+                args: args
+            });
+
+            strategy.nodes.push(node);
+        }
+
+        // Mark submitter as having submitted
+        hasSubmittedStrategy[currentEpochNumber][msg.sender] = true;
+        epochSubmitters[currentEpochNumber].push(msg.sender);
+
+        emit StrategySubmitted(currentEpochNumber, msg.sender, encoders.length, block.timestamp);
     }
 
     // ============================= UEI FUNCTIONALITY =============================
