@@ -11,6 +11,7 @@ import {
     InEuint256,
     InEaddress,
     InEuint32,
+    InEuint128,
     euint64,
     euint256,
     euint32,

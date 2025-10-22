@@ -15,7 +15,7 @@ import {DynamicFHE} from "./DynamicFHE.sol";
 import "@eigenlayer/contracts/interfaces/IRewardsCoordinator.sol";
 import {IAllocationManager} from "@eigenlayer/contracts/interfaces/IAllocationManager.sol";
 // Fhenix CoFHE imports
-import {FHE, InEuint128, InEuint32, InEuint256, InEuint64, InEaddress, euint128, euint256, euint64, euint32, eaddress, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {FHE, InEuint128, InEuint32, InEuint256, InEuint64, InEuint16, InEaddress, euint128, euint256, euint64, euint32, euint16, eaddress, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 // Simple struct for emitting internal FHE handles with type information
 struct HandleWithType {
@@ -68,7 +68,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     // Strategy performance tracking
     struct StrategyPerf {
         StrategyNode[] nodes;      // Array of encrypted strategy nodes
-        euint256 encryptedAPY;     // Encrypted APY result (set by AVS)
+        euint16 encryptedAPY;      // Encrypted APY in basis points (e.g., 1234 = 12.34%)
         address submitter;         // Strategy owner
         uint256 submittedAt;       // Submission timestamp
         bool finalized;            // Whether APY has been decrypted
@@ -420,12 +420,12 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
      * @dev Can be called anytime during OPEN state as operators simulate in real-time
      * @param epochNumber The epoch number
      * @param trader The trader whose strategy was simulated
-     * @param encryptedAPY The encrypted APY result from simulation
+     * @param encryptedAPY The encrypted APY in basis points (e.g., 1234 = 12.34%)
      */
     function reportEncryptedAPY(
         uint256 epochNumber,
         address trader,
-        InEuint256 calldata encryptedAPY
+        InEuint16 calldata encryptedAPY
     ) external onlyOperator {
         require(epochNumber <= currentEpochNumber, "Invalid epoch");
         EpochData storage epoch = epochs[epochNumber];
@@ -444,7 +444,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
 
         // Load and store encrypted APY
         StrategyPerf storage strategy = strategies[epochNumber][trader];
-        euint256 apy = FHE.asEuint256(encryptedAPY);
+        euint16 apy = FHE.asEuint16(encryptedAPY);
         FHE.allowThis(apy);
 
         // Grant trader permission to decrypt their own APY (for viewMyAPY)
