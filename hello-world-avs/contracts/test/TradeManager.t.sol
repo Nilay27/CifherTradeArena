@@ -11,10 +11,12 @@ import {
     InEuint256,
     InEaddress,
     InEuint32,
+    InEuint16,
     InEuint128,
     euint64,
     euint256,
     euint32,
+    euint16,
     eaddress
 } from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
@@ -503,5 +505,111 @@ contract TradeManagerTest is CoFheUtils {
         vm.expectRevert("Strategy must have at least one node");
         vm.prank(trader1);
         tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+    }
+
+    // ========================================= APY REPORTING TESTS =========================================
+
+    function test_ReportEncryptedAPY() public {
+        // Setup: Register operator and start epoch
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Submit a strategy
+        InEaddress[] memory encoders = new InEaddress[](1);
+        InEaddress[] memory targets = new InEaddress[](1);
+        InEuint32[] memory selectors = new InEuint32[](1);
+        DynamicInE[][] memory nodeArgs = new DynamicInE[][](1);
+
+        encoders[0] = createInEaddress(makeAddr("encoder"), trader1);
+        targets[0] = createInEaddress(makeAddr("target"), trader1);
+        selectors[0] = createInEuint32(0x12345678, trader1);
+        nodeArgs[0] = new DynamicInE[](0);
+
+        vm.prank(trader1);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        // Operator reports APY (e.g., 12.34% = 1234 basis points)
+        InEuint16 memory encryptedAPY = createInEuint16(1234, operator1);
+
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader1, encryptedAPY);
+
+        // Get the strategy's encrypted APY
+        euint16 apy = tradeManager.getEncryptedAPY(1, trader1);
+
+        // Verify trader has decrypt permission
+        assertIsAllowed(apy, trader1, "Trader should have decrypt permission for their APY");
+
+        // Verify the encrypted APY value matches what was reported (using mock storage)
+        uint16 decryptedAPY = uint16(mockStorage(euint16.unwrap(apy)));
+        assertEq(decryptedAPY, 1234, "Decrypted APY should match reported value");
+    }
+
+    function test_RevertWhen_ReportAPYNonOperator() public {
+        // Setup epoch and strategy submission
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        InEaddress[] memory encoders = new InEaddress[](1);
+        InEaddress[] memory targets = new InEaddress[](1);
+        InEuint32[] memory selectors = new InEuint32[](1);
+        DynamicInE[][] memory nodeArgs = new DynamicInE[][](1);
+        encoders[0] = createInEaddress(makeAddr("encoder"), trader1);
+        targets[0] = createInEaddress(makeAddr("target"), trader1);
+        selectors[0] = createInEuint32(0x12345678, trader1);
+        nodeArgs[0] = new DynamicInE[](0);
+
+        vm.prank(trader1);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        // Try to report APY as non-operator
+        InEuint16 memory encryptedAPY = createInEuint16(1234, trader1);
+
+        vm.expectRevert("Operator must be the caller");
+        vm.prank(trader1);
+        tradeManager.reportEncryptedAPY(1, trader1, encryptedAPY);
+    }
+
+    function test_RevertWhen_ReportAPYNoStrategy() public {
+        // Setup epoch but no strategy submission
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Try to report APY without strategy submission
+        InEuint16 memory encryptedAPY = createInEuint16(1234, operator1);
+
+        vm.expectRevert("No strategy submitted");
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader1, encryptedAPY);
     }
 }

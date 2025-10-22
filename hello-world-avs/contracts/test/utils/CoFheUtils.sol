@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
-import {FHE, euint128, euint32, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {FHE, euint128, euint32, euint16, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 /**
  * @title CoFheUtils
@@ -436,5 +436,69 @@ abstract contract CoFheUtils is Test, CoFheTest {
     function logComparison(string memory label, euint128 a, euint128 b) internal {
         emit log_named_uint(string(abi.encodePacked(label, " (a)")), getMockValue(a));
         emit log_named_uint(string(abi.encodePacked(label, " (b)")), getMockValue(b));
+    }
+
+    // ============================================
+    // PERMISSION CHECKING
+    // ============================================
+
+    /**
+     * @notice Check if an account has permission to decrypt an encrypted euint16
+     * @param value The encrypted euint16 value
+     * @param account The account to check permission for
+     * @return Whether the account has decrypt permission
+     */
+    function isAllowed(euint16 value, address account) internal view returns (bool) {
+        return taskManager.isAllowed(euint16.unwrap(value), account);
+    }
+
+    /**
+     * @notice Check if an account has permission to decrypt an encrypted euint32
+     * @param value The encrypted euint32 value
+     * @param account The account to check permission for
+     * @return Whether the account has decrypt permission
+     */
+    function isAllowed(euint32 value, address account) internal view returns (bool) {
+        return taskManager.isAllowed(euint32.unwrap(value), account);
+    }
+
+    /**
+     * @notice Check if an account has permission to decrypt an encrypted euint128
+     * @param value The encrypted euint128 value
+     * @param account The account to check permission for
+     * @return Whether the account has decrypt permission
+     */
+    function isAllowed(euint128 value, address account) internal view returns (bool) {
+        return taskManager.isAllowed(euint128.unwrap(value), account);
+    }
+
+    /**
+     * @notice Assert that an account has permission to decrypt an encrypted euint16
+     * @param value The encrypted euint16 value
+     * @param account The account to check permission for
+     */
+    function assertIsAllowed(euint16 value, address account) internal view {
+        assertTrue(isAllowed(value, account), "Account should have decrypt permission");
+    }
+
+    /**
+     * @notice Assert that an account has permission to decrypt an encrypted euint16 with message
+     */
+    function assertIsAllowed(euint16 value, address account, string memory message) internal view {
+        assertTrue(isAllowed(value, account), message);
+    }
+
+    /**
+     * @notice Assert that an account has permission to decrypt an encrypted euint32
+     */
+    function assertIsAllowed(euint32 value, address account) internal view {
+        assertTrue(isAllowed(value, account), "Account should have decrypt permission");
+    }
+
+    /**
+     * @notice Assert that an account has permission to decrypt an encrypted euint128
+     */
+    function assertIsAllowed(euint128 value, address account) internal view {
+        assertTrue(isAllowed(value, account), "Account should have decrypt permission");
     }
 }

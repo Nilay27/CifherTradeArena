@@ -464,5 +464,15 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         emit BoringVaultSet(_vault);
     }
 
-    // ============================= VIEW FUNCTIONS (TODO) =============================
+    // ============================= VIEW FUNCTIONS =============================
+
+    /**
+     * @notice Get the encrypted APY for a trader's strategy in an epoch
+     * @param epochNumber The epoch number
+     * @param trader The trader address
+     * @return The encrypted APY (euint16)
+     */
+    function getEncryptedAPY(uint256 epochNumber, address trader) external view returns (euint16) {
+        return strategies[epochNumber][trader].encryptedAPY;
+    }
 }
