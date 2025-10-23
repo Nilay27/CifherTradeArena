@@ -50,9 +50,10 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     mapping(uint256 => address[]) public epochSubmitters; // List of submitters per epoch
     mapping(uint256 => mapping(address => StrategyPerf)) public strategies; // epoch => submitter => strategy
 
-    // Epoch state enum (simplified)
+    // Epoch state enum
     enum EpochState {
         OPEN,       // Accepting submissions, operators posting APYs in real-time
+        CLOSED,     // Submission period ended, decryption requested
         FINALIZED,  // APYs decrypted, winners selected
         EXECUTED    // Capital deployed via BoringVault
     }
@@ -197,6 +198,12 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         uint256 indexed epochNumber,
         address indexed submitter,
         address indexed operator,
+        uint256 timestamp
+    );
+
+    event EpochClosed(
+        uint256 indexed epochNumber,
+        uint256 totalStrategies,
         uint256 timestamp
     );
 
@@ -456,6 +463,92 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     }
 
     /**
+     * @notice Close epoch and request decryption for all APYs and simulation times
+     * @dev Can be called by anyone after epoch duration has passed
+     * @param epochNumber The epoch number to close
+     */
+    function closeEpoch(uint256 epochNumber) external {
+        require(epochNumber <= currentEpochNumber, "Invalid epoch");
+        EpochData storage epoch = epochs[epochNumber];
+
+        require(epoch.state == EpochState.OPEN, "Epoch not open");
+        require(block.timestamp > epoch.epochEndTime, "Epoch duration not passed");
+
+        // Decrypt simulation times (reveal the backtesting window)
+        FHE.decrypt(epoch.encSimStartTime);
+        FHE.decrypt(epoch.encSimEndTime);
+
+        // Request decryption for all submitted strategies' APYs
+        address[] memory submitters = epochSubmitters[epochNumber];
+        for (uint256 i = 0; i < submitters.length; i++) {
+            address trader = submitters[i];
+            euint16 encryptedAPY = strategies[epochNumber][trader].encryptedAPY;
+
+            // Decrypt APY (triggers decryption request to CoFHE network)
+            // Note: Only decrypt if APY has been reported (non-zero handle)
+            if (euint16.unwrap(encryptedAPY) != 0) {
+                FHE.decrypt(encryptedAPY);
+            }
+        }
+
+        epoch.state = EpochState.CLOSED;
+        emit EpochClosed(epochNumber, submitters.length, block.timestamp);
+    }
+
+    /**
+     * @notice Finalize epoch with decrypted APYs and select winners
+     * @dev Called by operator after decryption completes off-chain
+     * @param epochNumber The epoch number to finalize
+     * @param winners Array of winning trader addresses (sorted by APY, highest first)
+     * @param decryptedAPYs Array of decrypted APY values (in basis points)
+     */
+    function finalizeEpoch(
+        uint256 epochNumber,
+        address[] calldata winners,
+        uint256[] calldata decryptedAPYs
+    ) external onlyOperator {
+        require(epochNumber <= currentEpochNumber, "Invalid epoch");
+        EpochData storage epoch = epochs[epochNumber];
+
+        require(epoch.state == EpochState.CLOSED, "Epoch not closed");
+        require(winners.length == epoch.weights.length, "Winners length must match weights length");
+        require(winners.length == decryptedAPYs.length, "Arrays length mismatch");
+
+        // Verify operator is selected for this epoch
+        bool isSelected = false;
+        for (uint256 i = 0; i < epoch.selectedOperators.length; i++) {
+            if (epoch.selectedOperators[i] == msg.sender) {
+                isSelected = true;
+                break;
+            }
+        }
+        require(isSelected, "Operator not selected for this epoch");
+
+        // Calculate allocations and store winners
+        uint256[] memory allocations = new uint256[](winners.length);
+        for (uint256 i = 0; i < winners.length; i++) {
+            // Verify winner actually submitted a strategy
+            require(hasSubmittedStrategy[epochNumber][winners[i]], "Winner did not submit strategy");
+
+            // Calculate allocation based on weight
+            allocations[i] = (epoch.allocatedCapital * epoch.weights[i]) / 100;
+
+            // Store winner
+            epochWinners[epochNumber].push(Winner({
+                trader: winners[i],
+                decryptedAPY: decryptedAPYs[i],
+                allocation: allocations[i]
+            }));
+
+            // Mark strategy as finalized
+            strategies[epochNumber][winners[i]].finalized = true;
+        }
+
+        epoch.state = EpochState.FINALIZED;
+        emit EpochFinalized(epochNumber, winners, decryptedAPYs, allocations);
+    }
+
+    /**
      * @notice Set the BoringVault address for strategy execution
      * @param _vault The BoringVault contract address
      */
@@ -474,5 +567,73 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
      */
     function getEncryptedAPY(uint256 epochNumber, address trader) external view returns (euint16) {
         return strategies[epochNumber][trader].encryptedAPY;
+    }
+
+    /**
+     * @notice Get the current state of an epoch
+     * @param epochNumber The epoch number
+     * @return The epoch state
+     */
+    function getEpochState(uint256 epochNumber) external view returns (EpochState) {
+        return epochs[epochNumber].state;
+    }
+
+    /**
+     * @notice Get decrypted APYs for all strategies in an epoch
+     * @dev Returns 0 for APYs that haven't been decrypted yet
+     * @param epochNumber The epoch number
+     * @return traders Array of trader addresses
+     * @return decryptedAPYs Array of decrypted APY values (0 if not yet decrypted)
+     * @return decrypted Array of booleans indicating if each APY has been decrypted
+     */
+    function getDecryptedAPYs(uint256 epochNumber)
+        external
+        view
+        returns (
+            address[] memory traders,
+            uint256[] memory decryptedAPYs,
+            bool[] memory decrypted
+        )
+    {
+        address[] memory submitters = epochSubmitters[epochNumber];
+        traders = submitters;
+        decryptedAPYs = new uint256[](submitters.length);
+        decrypted = new bool[](submitters.length);
+
+        for (uint256 i = 0; i < submitters.length; i++) {
+            address trader = submitters[i];
+            euint16 encryptedAPY = strategies[epochNumber][trader].encryptedAPY;
+
+            if (euint16.unwrap(encryptedAPY) != 0) {
+                (uint256 result, bool isDecrypted) = FHE.getDecryptResultSafe(encryptedAPY);
+                decryptedAPYs[i] = result;
+                decrypted[i] = isDecrypted;
+            }
+        }
+    }
+
+    /**
+     * @notice Get decrypted simulation times for an epoch
+     * @dev Returns 0 for times that haven't been decrypted yet
+     * @param epochNumber The epoch number
+     * @return simStartTime Decrypted simulation start time (0 if not yet decrypted)
+     * @return simEndTime Decrypted simulation end time (0 if not yet decrypted)
+     * @return startDecrypted Whether start time has been decrypted
+     * @return endDecrypted Whether end time has been decrypted
+     */
+    function getDecryptedSimTimes(uint256 epochNumber)
+        external
+        view
+        returns (
+            uint256 simStartTime,
+            uint256 simEndTime,
+            bool startDecrypted,
+            bool endDecrypted
+        )
+    {
+        EpochData storage epoch = epochs[epochNumber];
+
+        (simStartTime, startDecrypted) = FHE.getDecryptResultSafe(epoch.encSimStartTime);
+        (simEndTime, endDecrypted) = FHE.getDecryptResultSafe(epoch.encSimEndTime);
     }
 }

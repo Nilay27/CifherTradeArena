@@ -612,4 +612,279 @@ contract TradeManagerTest is CoFheUtils {
         vm.prank(operator1);
         tradeManager.reportEncryptedAPY(1, trader1, encryptedAPY);
     }
+
+    // ========================================= EPOCH CLOSING TESTS =========================================
+
+    function test_CloseEpoch() public {
+        // Setup: Register operator, start epoch, submit strategy, report APY
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Submit strategy
+        InEaddress[] memory encoders = new InEaddress[](1);
+        InEaddress[] memory targets = new InEaddress[](1);
+        InEuint32[] memory selectors = new InEuint32[](1);
+        DynamicInE[][] memory nodeArgs = new DynamicInE[][](1);
+
+        encoders[0] = createInEaddress(makeAddr("encoder"), trader1);
+        targets[0] = createInEaddress(makeAddr("target"), trader1);
+        selectors[0] = createInEuint32(0x12345678, trader1);
+        nodeArgs[0] = new DynamicInE[](0);
+
+        vm.prank(trader1);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        // Report APY
+        InEuint16 memory encryptedAPY = createInEuint16(1234, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader1, encryptedAPY);
+
+        // Warp past epoch end time
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Close epoch (can be called by anyone)
+        tradeManager.closeEpoch(1);
+
+        // Verify epoch state is CLOSED
+        TradeManager.EpochState state = tradeManager.getEpochState(1);
+        assertEq(uint256(state), uint256(TradeManager.EpochState.CLOSED));
+    }
+
+    function test_RevertWhen_CloseEpochTooEarly() public {
+        // Setup epoch
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Try to close epoch before duration passes
+        vm.expectRevert("Epoch duration not passed");
+        tradeManager.closeEpoch(1);
+    }
+
+    function test_GetDecryptedAPYs() public {
+        // Setup: Register operator, start epoch, submit strategies, report APYs
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Submit strategies for two traders
+        InEaddress[] memory encoders = new InEaddress[](1);
+        InEaddress[] memory targets = new InEaddress[](1);
+        InEuint32[] memory selectors = new InEuint32[](1);
+        DynamicInE[][] memory nodeArgs = new DynamicInE[][](1);
+
+        encoders[0] = createInEaddress(makeAddr("encoder"), trader1);
+        targets[0] = createInEaddress(makeAddr("target"), trader1);
+        selectors[0] = createInEuint32(0x12345678, trader1);
+        nodeArgs[0] = new DynamicInE[](0);
+
+        vm.prank(trader1);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        encoders[0] = createInEaddress(makeAddr("encoder2"), trader2);
+        targets[0] = createInEaddress(makeAddr("target2"), trader2);
+        selectors[0] = createInEuint32(0x87654321, trader2);
+
+        vm.prank(trader2);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        // Report APYs
+        InEuint16 memory apy1 = createInEuint16(1234, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader1, apy1);
+
+        InEuint16 memory apy2 = createInEuint16(5678, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader2, apy2);
+
+        // Close epoch
+        vm.warp(block.timestamp + 1 days + 1);
+        tradeManager.closeEpoch(1);
+
+        // Wait for decryption to complete (mock requires time delay)
+        vm.warp(block.timestamp + 11);
+
+        // Get decrypted APYs
+        (address[] memory traders, uint256[] memory decryptedAPYs, bool[] memory decrypted) =
+            tradeManager.getDecryptedAPYs(1);
+
+        assertEq(traders.length, 2);
+        assertEq(traders[0], trader1);
+        assertEq(traders[1], trader2);
+        assertEq(decryptedAPYs[0], 1234);
+        assertEq(decryptedAPYs[1], 5678);
+        assertTrue(decrypted[0]);
+        assertTrue(decrypted[1]);
+    }
+
+    function test_GetDecryptedSimTimes() public {
+        // Setup epoch
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        uint64 simStart = uint64(block.timestamp - 7 days);
+        uint64 simEnd = uint64(block.timestamp - 1 days);
+        InEuint64 memory encSimStart = createInEuint64(simStart, admin);
+        InEuint64 memory encSimEnd = createInEuint64(simEnd, admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Close epoch
+        vm.warp(block.timestamp + 1 days + 1);
+        tradeManager.closeEpoch(1);
+
+        // Wait for decryption to complete (mock requires time delay)
+        vm.warp(block.timestamp + 11);
+
+        // Get decrypted sim times
+        (uint256 decryptedStart, uint256 decryptedEnd, bool startDecrypted, bool endDecrypted) =
+            tradeManager.getDecryptedSimTimes(1);
+
+        assertEq(decryptedStart, simStart);
+        assertEq(decryptedEnd, simEnd);
+        assertTrue(startDecrypted);
+        assertTrue(endDecrypted);
+    }
+
+    // ========================================= EPOCH FINALIZATION TESTS =========================================
+
+    function test_FinalizeEpoch() public {
+        // Setup: Full epoch flow
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Submit strategies
+        InEaddress[] memory encoders = new InEaddress[](1);
+        InEaddress[] memory targets = new InEaddress[](1);
+        InEuint32[] memory selectors = new InEuint32[](1);
+        DynamicInE[][] memory nodeArgs = new DynamicInE[][](1);
+
+        encoders[0] = createInEaddress(makeAddr("encoder"), trader1);
+        targets[0] = createInEaddress(makeAddr("target"), trader1);
+        selectors[0] = createInEuint32(0x12345678, trader1);
+        nodeArgs[0] = new DynamicInE[](0);
+
+        vm.prank(trader1);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        encoders[0] = createInEaddress(makeAddr("encoder2"), trader2);
+        targets[0] = createInEaddress(makeAddr("target2"), trader2);
+        selectors[0] = createInEuint32(0x87654321, trader2);
+
+        vm.prank(trader2);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        // Report APYs
+        InEuint16 memory apy1 = createInEuint16(1234, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader1, apy1);
+
+        InEuint16 memory apy2 = createInEuint16(5678, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader2, apy2);
+
+        // Close epoch
+        vm.warp(block.timestamp + 1 days + 1);
+        tradeManager.closeEpoch(1);
+
+        // Finalize epoch - operator reports winners (trader2 has higher APY)
+        address[] memory winners = new address[](2);
+        winners[0] = trader2; // 5678 APY
+        winners[1] = trader1; // 1234 APY
+
+        uint256[] memory decryptedAPYs = new uint256[](2);
+        decryptedAPYs[0] = 5678;
+        decryptedAPYs[1] = 1234;
+
+        vm.prank(operator1);
+        tradeManager.finalizeEpoch(1, winners, decryptedAPYs);
+
+        // Verify epoch state is FINALIZED
+        TradeManager.EpochState state = tradeManager.getEpochState(1);
+        assertEq(uint256(state), uint256(TradeManager.EpochState.FINALIZED));
+
+        // Verify winners
+        (address winner1, uint256 apy1Final, uint256 allocation1) = tradeManager.epochWinners(1, 0);
+        (address winner2, uint256 apy2Final, uint256 allocation2) = tradeManager.epochWinners(1, 1);
+
+        assertEq(winner1, trader2);
+        assertEq(apy1Final, 5678);
+        assertEq(allocation1, 600_000e6); // 60% of 1M
+
+        assertEq(winner2, trader1);
+        assertEq(apy2Final, 1234);
+        assertEq(allocation2, 400_000e6); // 40% of 1M
+    }
+
+    function test_RevertWhen_FinalizeEpochNotClosed() public {
+        // Setup epoch
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Try to finalize without closing
+        address[] memory winners = new address[](2);
+        winners[0] = trader1;
+        winners[1] = trader2;
+
+        uint256[] memory decryptedAPYs = new uint256[](2);
+        decryptedAPYs[0] = 1234;
+        decryptedAPYs[1] = 5678;
+
+        vm.expectRevert("Epoch not closed");
+        vm.prank(operator1);
+        tradeManager.finalizeEpoch(1, winners, decryptedAPYs);
+    }
 }
