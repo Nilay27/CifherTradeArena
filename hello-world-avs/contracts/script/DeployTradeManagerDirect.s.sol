@@ -58,7 +58,7 @@ contract DeployTradeManagerDirect is Script {
             coreDeployment.rewardsCoordinator,
             coreDeployment.delegationManager,
             coreDeployment.allocationManager,
-            swapManagerConfig.rewardsOwner // admin
+            deployer // admin
         );
 
         console2.log("\nTradeManager deployed at:", address(tradeManager));
@@ -67,7 +67,7 @@ contract DeployTradeManagerDirect is Script {
         console2.log("\nVerifying admin...");
         address currentAdmin = tradeManager.admin();
         console2.log("Current admin:", currentAdmin);
-        require(currentAdmin == swapManagerConfig.rewardsOwner, "Admin mismatch");
+        require(currentAdmin == deployer, "Admin mismatch");
 
         vm.stopBroadcast();
 
@@ -84,7 +84,7 @@ contract DeployTradeManagerDirect is Script {
         address tradeManager,
         TradeManagerDeploymentLib.DeploymentData memory existingDeployment
     ) internal {
-        string memory outputPath = "deployments/swap-manager/";
+        string memory outputPath = "deployments/trade-manager/";
         string memory fileName = string.concat(outputPath, vm.toString(block.chainid), ".json");
 
         string memory json = string.concat(
