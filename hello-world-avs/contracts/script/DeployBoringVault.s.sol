@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/Test.sol";
 import {SimpleBoringVault} from "../src/SimpleBoringVault.sol";
+import {stdJson} from "forge-std/StdJson.sol";
 
 interface ITradeManager {
     function setBoringVault(address payable _vault) external;
@@ -18,19 +19,46 @@ interface IERC20 {
 /**
  * @title DeployBoringVault
  * @notice Deploys SimpleBoringVault and configures it with TradeManager
+ * @dev Now uses dynamic addresses from deployment files
  */
 contract DeployBoringVault is Script {
-    address internal deployer;
+    using stdJson for string;
 
-    // Deployed contract addresses on Sepolia
-    address constant UNIVERSAL_PRIVACY_HOOK = 0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080;
-    address constant SWAP_MANAGER = 0x628c7202678d099e95E89084a9FE5b73E2a88464;
-    address constant USDC = 0x478700f3a33818eeBc3d9D41D4da8C54FDAEaD4b;
-    address constant USDT = 0x2213f46EF0395026760cf8E3AD4a3a8f8ad7D0B0;
+    address internal deployer;
+    address internal tradeManager;
+    address internal usdc;
+    address internal usdt;
 
     function setUp() public virtual {
         deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
         vm.label(deployer, "Deployer");
+
+        // Load addresses from deployment files
+        loadDeploymentAddresses();
+    }
+
+    function loadDeploymentAddresses() internal {
+        uint256 chainId = block.chainid;
+
+        // Load mock token addresses
+        string memory mocksPath = string.concat("deployments/mocks/", vm.toString(chainId), ".json");
+        require(vm.exists(mocksPath), "Mock deployment file does not exist");
+        string memory mocksJson = vm.readFile(mocksPath);
+
+        usdc = mocksJson.readAddress(".tokens.USDC");
+        usdt = mocksJson.readAddress(".tokens.USDT");
+
+        // Load TradeManager address
+        string memory tradeManagerPath = string.concat("deployments/trade-manager/", vm.toString(chainId), ".json");
+        require(vm.exists(tradeManagerPath), "TradeManager deployment file does not exist");
+        string memory tradeManagerJson = vm.readFile(tradeManagerPath);
+
+        tradeManager = tradeManagerJson.readAddress(".addresses.TradeManager");
+
+        console2.log("\n=== Loaded Deployment Addresses ===");
+        console2.log("USDC:", usdc);
+        console2.log("USDT:", usdt);
+        console2.log("TradeManager:", tradeManager);
     }
 
     function run() external virtual {
@@ -38,14 +66,11 @@ contract DeployBoringVault is Script {
 
         console2.log("\n=== Deploying SimpleBoringVault ===");
         console2.log("Deployer:", deployer);
-        console2.log("UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
-        console2.log("TradeManager:", SWAP_MANAGER);
+        console2.log("TradeManager:", tradeManager);
 
         // Deploy SimpleBoringVault
-        // Constructor params: hook, tradeManager
-        // Set tradeManager = deployer so we can manage executors in the future
+        // Constructor params: tradeManager
         SimpleBoringVault vault = new SimpleBoringVault(
-            UNIVERSAL_PRIVACY_HOOK,
             deployer  // tradeManager = deployer (for flexibility)
         );
 
@@ -53,44 +78,44 @@ contract DeployBoringVault is Script {
 
         // Verify configuration
         console2.log("\nVerifying vault configuration...");
-        require(vault.hook() == UNIVERSAL_PRIVACY_HOOK, "Hook mismatch");
         require(vault.tradeManager() == deployer, "TradeManager mismatch");
-        console2.log("Hook:", vault.hook());
         console2.log("TradeManager (deployer):", vault.tradeManager());
 
         // Authorize TradeManager as executor
         console2.log("\nAuthorizing TradeManager as executor...");
-        vault.setExecutor(SWAP_MANAGER, true);
+        vault.setExecutor(tradeManager, true);
         console2.log("TradeManager authorized as executor");
 
         // Verify TradeManager is authorized
-        require(vault.isAuthorized(SWAP_MANAGER), "TradeManager not authorized");
-        console2.log("TradeManager authorized:", vault.isAuthorized(SWAP_MANAGER));
+        require(vault.isAuthorized(tradeManager), "TradeManager not authorized");
+        console2.log("TradeManager authorized:", vault.isAuthorized(tradeManager));
 
         // Set BoringVault address in TradeManager
         console2.log("\nSetting BoringVault in TradeManager...");
-        ITradeManager(SWAP_MANAGER).setBoringVault(payable(address(vault)));
+        ITradeManager(tradeManager).setBoringVault(payable(address(vault)));
         console2.log("BoringVault set in TradeManager");
 
-        // mint usdc and usdt to vault
+        // Mint 10M USDC and USDT to vault
         console2.log("\nMinting tokens to vault...");
-        IERC20(USDC).mint(address(vault), 100_000 * 10**6);
-        console2.log("Minted 100,000 USDC to vault");
+        IERC20(usdc).mint(address(vault), 10_000_000 * 10**6);
+        console2.log("Minted 10,000,000 USDC to vault");
 
-        IERC20(USDT).mint(address(vault), 100_000 * 10**6);
-        console2.log("Minted 100,000 USDT to vault");
+        IERC20(usdt).mint(address(vault), 10_000_000 * 10**6);
+        console2.log("Minted 10,000,000 USDT to vault");
 
         vm.stopBroadcast();
 
         console2.log("\n=== Deployment Complete ===");
         console2.log("SimpleBoringVault:", address(vault));
         console2.log("\nAuthorization Summary:");
-        console2.log("- Hook can execute:", vault.isAuthorized(UNIVERSAL_PRIVACY_HOOK));
-        console2.log("- TradeManager can execute:", vault.isAuthorized(SWAP_MANAGER));
+        console2.log("- TradeManager can execute:", vault.isAuthorized(tradeManager));
+        console2.log("\nFunding Summary:");
+        console2.log("- USDC: 10,000,000");
+        console2.log("- USDT: 10,000,000");
         console2.log("\nIntegration Status:");
-        console2.log("- Hook can deposit: vault.deposit(token, amount)");
-        console2.log("- TradeManager can execute UEI: vault.execute(target, data, value)");
-        console2.log("- TradeManager.processUEI() -> vault.execute() -> target protocol");
+        console2.log("- Anyone can deposit: vault.deposit(token, amount)");
+        console2.log("- Anyone can withdraw: vault.withdraw(token, amount, to)");
+        console2.log("- TradeManager can execute: vault.execute(target, data, value)");
 
         // Write deployment info
         writeDeploymentInfo(address(vault));
@@ -107,10 +132,12 @@ contract DeployBoringVault is Script {
             vm.toString(block.number),
             '"},"addresses":{"SimpleBoringVault":"',
             vm.toString(vault),
-            '","hook":"',
-            vm.toString(UNIVERSAL_PRIVACY_HOOK),
             '","tradeManager":"',
-            vm.toString(SWAP_MANAGER),
+            vm.toString(tradeManager),
+            '","usdc":"',
+            vm.toString(usdc),
+            '","usdt":"',
+            vm.toString(usdt),
             '"}}'
         );
 

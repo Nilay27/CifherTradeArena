@@ -69,7 +69,7 @@ function getSelector(signature: string): string {
 /**
  * Protocol function definitions with real signatures
  */
-const PROTOCOL_FUNCTIONS: ProtocolFunction[] = [
+export const PROTOCOL_FUNCTIONS: ProtocolFunction[] = [
     // Pendle
     {
         protocol: "pendle",

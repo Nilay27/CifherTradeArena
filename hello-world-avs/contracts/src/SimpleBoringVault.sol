@@ -9,7 +9,7 @@ import {ReentrancyGuard} from "@oz-v5/contracts/utils/ReentrancyGuard.sol";
 /**
  * @title SimpleBoringVault
  * @notice A simplified vault that holds strategy capital and executes trades
- * @dev 80% of liquidity from the hook will be managed here
+ * @dev Managed exclusively by TradeManager AVS
  */
 contract SimpleBoringVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -18,19 +18,9 @@ contract SimpleBoringVault is ReentrancyGuard {
     // ========================================= STATE =========================================
 
     /**
-     * @notice The UniversalPrivacyHook that can deposit funds
-     */
-    address public immutable hook;
-
-    /**
      * @notice The TradeManager AVS that can execute strategies
      */
     address public immutable tradeManager;
-
-    /**
-     * @notice Track token balances deposited from hook
-     */
-    mapping(address => uint256) public tokenBalances;
 
     /**
      * @notice Track which addresses are authorized to execute
@@ -55,13 +45,8 @@ contract SimpleBoringVault is ReentrancyGuard {
 
     // ========================================= MODIFIERS =========================================
 
-    modifier onlyHook() {
-        if (msg.sender != hook) revert Unauthorized();
-        _;
-    }
-
     modifier onlyAuthorized() {
-        if (msg.sender != hook && msg.sender != tradeManager && !authorizedExecutors[msg.sender]) {
+        if (msg.sender != tradeManager && !authorizedExecutors[msg.sender]) {
             revert Unauthorized();
         }
         _;
@@ -74,29 +59,24 @@ contract SimpleBoringVault is ReentrancyGuard {
 
     // ========================================= CONSTRUCTOR =========================================
 
-    constructor(address _hook, address _tradeManager) {
-        if (_hook == address(0)) revert ZeroAddress();
+    constructor(address _tradeManager) {
         if (_tradeManager == address(0)) revert ZeroAddress();
 
-        hook = _hook;
         tradeManager = _tradeManager;
     }
 
     // ========================================= EXTERNAL FUNCTIONS =========================================
 
     /**
-     * @notice Deposit tokens from the hook (80% of liquidity)
+     * @notice Deposit tokens into the vault
      * @param token The token to deposit
      * @param amount The amount to deposit
      */
-    function deposit(address token, uint256 amount) external onlyHook nonReentrant {
+    function deposit(address token, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
 
-        // Transfer tokens from hook to this vault
+        // Transfer tokens to this vault
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-
-        // Update balance tracking
-        tokenBalances[token] += amount;
 
         emit Deposited(token, amount, msg.sender);
     }
@@ -143,7 +123,7 @@ contract SimpleBoringVault is ReentrancyGuard {
     }
 
     /**
-     * @notice Withdraw tokens back to the hook
+     * @notice Withdraw tokens from the vault
      * @param token The token to withdraw
      * @param amount The amount to withdraw
      * @param to The recipient address
@@ -152,36 +132,11 @@ contract SimpleBoringVault is ReentrancyGuard {
         address token,
         uint256 amount,
         address to
-    ) external onlyHook nonReentrant {
-        if (tokenBalances[token] < amount) revert InsufficientBalance();
-
-        // Update balance tracking
-        tokenBalances[token] -= amount;
-
+    ) external nonReentrant {
         // Transfer tokens
         IERC20(token).safeTransfer(to, amount);
 
         emit Withdrawn(token, amount, to);
-    }
-
-    /**
-     * @notice Emergency withdraw function for trade manager
-     * @dev Only callable by trade manager in case of emergency
-     */
-    function emergencyWithdraw(
-        address token,
-        uint256 amount,
-        address to
-    ) external onlyTradeManager nonReentrant {
-        if (tokenBalances[token] < amount) revert InsufficientBalance();
-
-        // Update balance tracking
-        tokenBalances[token] -= amount;
-
-        // Transfer tokens
-        IERC20(token).safeTransfer(to, amount);
-
-        emit EmergencyWithdraw(token, amount, to);
     }
 
     /**
@@ -200,7 +155,7 @@ contract SimpleBoringVault is ReentrancyGuard {
      * @return The balance amount
      */
     function getBalance(address token) external view returns (uint256) {
-        return tokenBalances[token];
+        return IERC20(token).balanceOf(address(this));
     }
 
     /**
@@ -209,7 +164,7 @@ contract SimpleBoringVault is ReentrancyGuard {
      * @return Whether the address is authorized
      */
     function isAuthorized(address executor) external view returns (bool) {
-        return executor == hook || executor == tradeManager || authorizedExecutors[executor];
+        return executor == tradeManager || authorizedExecutors[executor];
     }
 
     /**
