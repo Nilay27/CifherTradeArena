@@ -4,6 +4,52 @@
  */
 
 import { ethers } from 'ethers';
+import * as fs from 'fs';
+import * as path from 'path';
+
+interface MockDeployment {
+    tokens: {
+        USDC: string;
+        USDT: string;
+        PT_eUSDE: string;
+        PT_sUSDE: string;
+        PT_USR: string;
+    };
+    protocols: {
+        pendle: string;
+        aave: string;
+        morpho: string;
+    };
+    markets: {
+        PT_eUSDE: string;
+        PT_sUSDE: string;
+        PT_USR: string;
+    };
+}
+
+let mockDeployment: MockDeployment | null = null;
+
+/**
+ * Load mock deployment addresses from file
+ */
+export function loadMockDeployment(chainId: number): MockDeployment {
+    if (mockDeployment) return mockDeployment;
+
+    const deploymentPath = path.resolve(
+        __dirname,
+        `../../contracts/deployments/mocks/${chainId}.json`
+    );
+
+    if (!fs.existsSync(deploymentPath)) {
+        throw new Error(`Mock deployment not found for chain ${chainId} at ${deploymentPath}`);
+    }
+
+    const data = fs.readFileSync(deploymentPath, 'utf8');
+    mockDeployment = JSON.parse(data);
+
+    console.log(`✅ Loaded mock deployment for chain ${chainId}`);
+    return mockDeployment!;
+}
 
 interface ProtocolFunction {
     protocol: string;
@@ -73,9 +119,9 @@ const PROTOCOL_FUNCTIONS: ProtocolFunction[] = [
     // Aave V3
     {
         protocol: "aave",
-        functionName: "deposit",
-        signature: "deposit(address,uint256,address,uint16)",
-        selector: getSelector("deposit(address,uint256,address,uint16)"),
+        functionName: "supply",
+        signature: "supply(address,uint256,address,uint16)",
+        selector: getSelector("supply(address,uint256,address,uint16)"),
         argNames: ["asset", "amount", "onBehalfOf", "referralCode"]
     },
     {
@@ -126,21 +172,28 @@ PROTOCOL_FUNCTIONS.forEach(fn => {
 });
 
 /**
- * Target address → protocol mapping (example addresses)
+ * Target address → protocol mapping
+ * This will be populated dynamically from deployment file
  */
-export const PROTOCOL_ADDRESSES: Record<string, string> = {
-    // Pendle contracts (examples - replace with real addresses)
-    "0x1234567890123456789012345678901234567890": "pendle",
+export let PROTOCOL_ADDRESSES: Record<string, string> = {};
 
-    // Morpho contracts
-    "0x3456789012345678901234567890123456789012": "morpho",
+/**
+ * Initialize protocol addresses from mock deployment
+ */
+export function initializeProtocolAddresses(chainId: number) {
+    const deployment = loadMockDeployment(chainId);
 
-    // Aave V3 Pool
-    "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2": "aave", // Ethereum mainnet
+    PROTOCOL_ADDRESSES = {
+        [deployment.protocols.pendle.toLowerCase()]: "pendle",
+        [deployment.protocols.aave.toLowerCase()]: "aave",
+        [deployment.protocols.morpho.toLowerCase()]: "morpho",
+    };
 
-    // Compound V3
-    "0xc3d688b66703497daa19211eedff47f25384cdc3": "compound", // USDC on Ethereum
-};
+    console.log("✅ Protocol addresses initialized:");
+    console.log(`  Pendle: ${deployment.protocols.pendle}`);
+    console.log(`  Aave: ${deployment.protocols.aave}`);
+    console.log(`  Morpho: ${deployment.protocols.morpho}`);
+}
 
 /**
  * Get protocol name from target address

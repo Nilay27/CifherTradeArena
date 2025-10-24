@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 import { initializeCofhe, batchDecrypt, batchEncrypt, FheTypes, CoFheItem, EncryptionInput } from "./cofheUtils";
 import { simulate, DecryptedNode } from "./utils/strategySimulator";
-import { getProtocolFunction, getFunctionFromSelector } from "./utils/protocolMapping";
+import { getProtocolFunction, getFunctionFromSelector, initializeProtocolAddresses } from "./utils/protocolMapping";
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -58,6 +58,9 @@ async function getChainId(): Promise<number> {
 async function initializeContracts() {
     chainId = await getChainId();
     console.log(`Chain ID: ${chainId}`);
+
+    // Initialize protocol addresses from mock deployment
+    initializeProtocolAddresses(chainId);
 
     const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/trade-manager/${chainId}.json`), 'utf8'));
     // Load core deployment data
@@ -298,7 +301,7 @@ const processStrategy = async (submission: StrategySubmission) => {
         console.log(`\nInitial Capital (from epoch): ${initialCapital}`);
 
         // Step 5: Simulate strategy and calculate APY
-        const simulatedAPY = simulate(decryptedNodes, initialCapital);
+        const simulatedAPY = simulate(chainId, decryptedNodes, initialCapital);
         console.log(`Calculated APY: ${simulatedAPY / 100}% (${simulatedAPY} bps)`);
 
         // Encrypt the APY using CoFHE.js

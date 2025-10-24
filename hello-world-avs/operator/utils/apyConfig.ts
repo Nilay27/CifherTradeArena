@@ -3,6 +3,8 @@
  * All APY values in basis points (10000 = 100%)
  */
 
+import { loadMockDeployment } from './protocolMapping';
+
 export interface APYRate {
     protocol: string;
     function: string;
@@ -12,77 +14,114 @@ export interface APYRate {
     type: 'supply' | 'borrow' | 'swap' | 'yield';
 }
 
-export const APY_CONFIG: APYRate[] = [
-    // Pendle PT purchases (yield-bearing tokens)
-    {
-        protocol: "pendle",
-        function: "swapExactTokenForPt",
-        market: "0x1234567890123456789012345678901234567890", // PT-sUSDe market
-        apy: 1500, // 15%
-        type: "yield"
-    },
-    {
-        protocol: "pendle",
-        function: "swapExactTokenForPt",
-        market: "0x2345678901234567890123456789012345678901", // PT-eETH market
-        apy: 1200, // 12%
-        type: "yield"
-    },
+let APY_CONFIG_CACHE: APYRate[] | null = null;
 
-    // Morpho supply (collateral)
-    {
-        protocol: "morpho",
-        function: "supply",
-        token: "0xpttokenaddressplaceholder0000000000000000", // PT tokens
-        apy: 0, // No yield on collateral
-        type: "supply"
-    },
+/**
+ * Get APY configuration with real deployed addresses
+ */
+export function getAPYConfig(chainId: number): APYRate[] {
+    if (APY_CONFIG_CACHE) return APY_CONFIG_CACHE;
 
-    // Morpho borrow (debt - simulator applies negative based on type)
-    {
-        protocol: "morpho",
-        function: "borrow",
-        token: "0xa0b86a33e6789e48ace7e9a89a9de7e1e1b9c8de", // USDC
-        apy: 1000, // 10% borrowing cost
-        type: "borrow"
-    },
-    {
-        protocol: "morpho",
-        function: "borrow",
-        token: "0xdac17f958d2ee523a2206206994597c13d831ec7", // USDT
-        apy: 950, // 9.5% borrowing cost
-        type: "borrow"
-    },
+    const deployment = loadMockDeployment(chainId);
 
-    // Aave supply
-    {
-        protocol: "aave",
-        function: "deposit",
-        token: "0xa0b86a33e6789e48ace7e9a89a9de7e1e1b9c8de", // USDC
-        apy: 500, // 5%
-        type: "supply"
-    },
+    APY_CONFIG_CACHE = [
+        // Pendle PT purchases (yield-bearing tokens)
+        {
+            protocol: "pendle",
+            function: "swapExactTokenForPt",
+            market: deployment.markets.PT_eUSDE, // PT-eUSDE market (7% APY)
+            apy: 700,
+            type: "yield"
+        },
+        {
+            protocol: "pendle",
+            function: "swapExactTokenForPt",
+            market: deployment.markets.PT_sUSDE, // PT-sUSDE market (8% APY)
+            apy: 800,
+            type: "yield"
+        },
+        {
+            protocol: "pendle",
+            function: "swapExactTokenForPt",
+            market: deployment.markets.PT_USR, // PT-USR market (10% APY)
+            apy: 1000,
+            type: "yield"
+        },
 
-    // Compound supply
-    {
-        protocol: "compound",
-        function: "supply",
-        token: "0xa0b86a33e6789e48ace7e9a89a9de7e1e1b9c8de", // USDC
-        apy: 450, // 4.5%
-        type: "supply"
-    }
-];
+        // Morpho supply (collateral)
+        {
+            protocol: "morpho",
+            function: "supply",
+            token: deployment.tokens.PT_USR, // PT-USR
+            apy: 0, // No yield on collateral
+            type: "supply"
+        },
+
+        // Morpho borrow (debt - simulator applies negative based on type)
+        {
+            protocol: "morpho",
+            function: "borrow",
+            token: deployment.tokens.USDC,
+            apy: 900, // 10% borrowing cost
+            type: "borrow"
+        },
+        {
+            protocol: "morpho",
+            function: "borrow",
+            token: deployment.tokens.USDT,
+            apy: 900, // 10% borrowing cost
+            type: "borrow"
+        },
+
+        // Aave supply (PT-eUSDE, PT-sUSDE)
+        {
+            protocol: "aave",
+            function: "supply",
+            token: deployment.tokens.PT_eUSDE,
+            apy: 0, // No yield on collateral
+            type: "supply"
+        },
+        {
+            protocol: "aave",
+            function: "supply",
+            token: deployment.tokens.PT_sUSDE,
+            apy: 0, // No yield on collateral
+            type: "supply"
+        },
+
+        // Aave borrow
+        {
+            protocol: "aave",
+            function: "borrow",
+            token: deployment.tokens.USDC,
+            apy: 500, // 5%
+            type: "borrow"
+        },
+        {
+            protocol: "aave",
+            function: "borrow",
+            token: deployment.tokens.USDT,
+            apy: 550, // 5.5%
+            type: "borrow"
+        },
+    ];
+
+    return APY_CONFIG_CACHE;
+}
 
 /**
  * Get APY rate for a specific protocol operation
  */
 export function getAPYRate(
+    chainId: number,
     protocol: string,
     functionName: string,
     tokenOrMarket: string
 ): number {
+    const config = getAPYConfig(chainId);
+
     // Try exact match first
-    let rate = APY_CONFIG.find(
+    let rate = config.find(
         r => r.protocol.toLowerCase() === protocol.toLowerCase() &&
              r.function.toLowerCase() === functionName.toLowerCase() &&
              (r.token?.toLowerCase() === tokenOrMarket.toLowerCase() ||
@@ -91,7 +130,7 @@ export function getAPYRate(
 
     // Fallback: match protocol + function only
     if (!rate) {
-        rate = APY_CONFIG.find(
+        rate = config.find(
             r => r.protocol.toLowerCase() === protocol.toLowerCase() &&
                  r.function.toLowerCase() === functionName.toLowerCase()
         );
@@ -104,10 +143,12 @@ export function getAPYRate(
  * Get operation type (supply, borrow, yield)
  */
 export function getOperationType(
+    chainId: number,
     protocol: string,
     functionName: string
 ): 'supply' | 'borrow' | 'swap' | 'yield' {
-    const rate = APY_CONFIG.find(
+    const config = getAPYConfig(chainId);
+    const rate = config.find(
         r => r.protocol.toLowerCase() === protocol.toLowerCase() &&
              r.function.toLowerCase() === functionName.toLowerCase()
     );
