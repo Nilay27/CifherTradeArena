@@ -448,6 +448,7 @@ function processStrategies(strategies: DecryptedStrategy[]): bigint[] {
 
 **Commit Message Format:**
 - Maximum 50 characters for the subject line
+- Maximum 3-4 lines as content of commit message
 - Clear, descriptive, action-oriented language
 - Never mention Claude or AI assistance
 - Never include "Co-Authored-By: Claude"
