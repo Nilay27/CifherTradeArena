@@ -713,4 +713,31 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         (simStartTime, startDecrypted) = FHE.getDecryptResultSafe(epoch.encSimStartTime);
         (simEndTime, endDecrypted) = FHE.getDecryptResultSafe(epoch.encSimEndTime);
     }
+
+    /**
+     * @notice Get strategy node count for a trader
+     */
+    function getStrategyNodeCount(uint256 epochNumber, address trader) external view returns (uint256) {
+        return strategies[epochNumber][trader].nodes.length;
+    }
+
+    /**
+     * @notice Get a specific strategy node with FHE handles
+     */
+    function getStrategyNode(uint256 epochNumber, address trader, uint256 nodeIndex)
+        external
+        view
+        returns (
+            uint256 encoderHandle,
+            uint256 targetHandle,
+            uint256 selectorHandle,
+            HandleWithType[] memory argHandles
+        )
+    {
+        StrategyNode storage node = strategies[epochNumber][trader].nodes[nodeIndex];
+        encoderHandle = eaddress.unwrap(node.encoder);
+        targetHandle = eaddress.unwrap(node.target);
+        selectorHandle = euint32.unwrap(node.selector);
+        argHandles = node.args;
+    }
 }

@@ -1,10 +1,29 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { initializeCofhe, batchEncrypt, batchDecrypt, FheTypes, CoFheItem, EncryptionInput } from "./cofheUtils";
-import { startUEIProcessor } from './ueiProcessor';
+import { initializeCofhe, batchDecrypt, batchEncrypt, FheTypes, CoFheItem, EncryptionInput } from "./cofheUtils";
+import { simulate, DecryptedNode } from "./utils/strategySimulator";
+import { getProtocolFunction, getFunctionFromSelector } from "./utils/protocolMapping";
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
+
+/**
+ * Parse decrypted value based on FHE type
+ */
+function parseDecryptedValue(value: bigint, utype: number): any {
+    if (utype === FheTypes.Bool) {
+        return Boolean(value);
+    } else if (utype === FheTypes.Uint8 || utype === FheTypes.Uint16 ||
+               utype === FheTypes.Uint32 || utype === FheTypes.Uint64) {
+        return Number(value);
+    } else if (utype === FheTypes.Uint128 || utype === FheTypes.Uint256) {
+        return value; // Keep as bigint for large numbers
+    } else if (utype === FheTypes.Address || utype === FheTypes.Uint160) {
+        return '0x' + value.toString(16).padStart(40, '0');
+    } else {
+        return value;
+    }
+}
 
 // Check if the process.env object is empty
 if (!Object.keys(process.env).length) {
@@ -16,15 +35,16 @@ const provider = new ethers.JsonRpcProvider(process.env.RPC_URL, undefined, { st
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
 
 console.log(`Using RPC: ${process.env.RPC_URL}`);
+console.log(`Operator Address: ${wallet.address}`);
 
 // Global variables that will be initialized in main()
 let chainId: number;
 let delegationManagerAddress: string;
 let avsDirectoryAddress: string;
-let TradeManagerAddress: string;
+let tradeManagerAddress: string;
 let ecdsaStakeRegistryAddress: string;
 let delegationManager: ethers.Contract;
-let TradeManager: ethers.Contract;
+let tradeManager: ethers.Contract;
 let ecdsaRegistryContract: ethers.Contract;
 let avsDirectory: ethers.Contract;
 
@@ -39,32 +59,29 @@ async function initializeContracts() {
     chainId = await getChainId();
     console.log(`Chain ID: ${chainId}`);
 
-    const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/swap-manager/${chainId}.json`), 'utf8'));
+    const avsDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/trade-manager/${chainId}.json`), 'utf8'));
     // Load core deployment data
     const coreDeploymentData = JSON.parse(fs.readFileSync(path.resolve(__dirname, `../contracts/deployments/core/${chainId}.json`), 'utf8'));
 
     delegationManagerAddress = coreDeploymentData.addresses.delegationManager;
     avsDirectoryAddress = coreDeploymentData.addresses.avsDirectory;
-    TradeManagerAddress = avsDeploymentData.addresses.TradeManager;
+    tradeManagerAddress = avsDeploymentData.addresses.tradeManager;
     ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
 
     // Load ABIs
     const delegationManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IDelegationManager.json'), 'utf8'));
     const ecdsaRegistryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/ECDSAStakeRegistry.json'), 'utf8'));
-    const TradeManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/TradeManager.json'), 'utf8'));
+    const tradeManagerABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/TradeManager.json'), 'utf8'));
     const avsDirectoryABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../abis/IAVSDirectory.json'), 'utf8'));
 
     // Initialize contract objects from ABIs
     delegationManager = new ethers.Contract(delegationManagerAddress, delegationManagerABI, wallet);
-    TradeManager = new ethers.Contract(TradeManagerAddress, TradeManagerABI, wallet);
+    tradeManager = new ethers.Contract(tradeManagerAddress, tradeManagerABI, wallet);
     ecdsaRegistryContract = new ethers.Contract(ecdsaStakeRegistryAddress, ecdsaRegistryABI, wallet);
     avsDirectory = new ethers.Contract(avsDirectoryAddress, avsDirectoryABI, wallet);
 }
 
-
-
 const registerOperator = async () => {
-
     // Registers as an Operator in EigenLayer.
     try {
         const nonce = await wallet.getNonce();
@@ -95,17 +112,15 @@ const registerOperator = async () => {
             expiry: expiry
         };
 
-        // Calculate the digest hash, which is a unique value representing the operator, avs, unique value (salt) and expiration date.
+        // Calculate the digest hash
         const operatorDigestHash = await avsDirectory.calculateOperatorAVSRegistrationDigestHash(
             wallet.address,
-            await TradeManager.getAddress(),
+            await tradeManager.getAddress(),
             salt,
             expiry
         );
-        console.log(operatorDigestHash);
 
         // Sign the digest hash with the operator's private key
-        console.log("Signing digest hash with operator's private key");
         const privateKey = process.env.PRIVATE_KEY!.startsWith('0x')
             ? process.env.PRIVATE_KEY!
             : '0x' + process.env.PRIVATE_KEY!;
@@ -117,8 +132,6 @@ const registerOperator = async () => {
 
         console.log("Registering Operator to AVS Registry contract");
 
-        // Register Operator to AVS
-        // Per release here: https://github.com/Layr-Labs/eigenlayer-middleware/blob/v0.2.1-mainnet-rewards/src/unaudited/ECDSAStakeRegistry.sol#L49
         const nonce2 = await wallet.getNonce();
         const tx2 = await ecdsaRegistryContract.registerOperatorWithSignature(
             operatorSignatureWithSaltAndExpiry,
@@ -134,501 +147,268 @@ const registerOperator = async () => {
             console.error("Error registering operator on AVS:", error);
         }
     }
-    
-    // Register with TradeManager for batch processing
+
+    // Register with TradeManager
     try {
-        // Check if already registered first
-        const isAlreadyRegistered = await TradeManager.isOperatorRegistered(wallet.address);
+        const isAlreadyRegistered = await tradeManager.isOperatorRegistered(wallet.address);
         if (isAlreadyRegistered) {
-            console.log("Operator already registered for batch processing");
+            console.log("Operator already registered with TradeManager");
         } else {
-            console.log("Registering operator for batch processing...");
+            console.log("Registering operator with TradeManager...");
             const nonce3 = await wallet.getNonce();
-            const tx3 = await TradeManager.registerOperatorForBatches({ nonce: nonce3 });
+            const tx3 = await tradeManager.registerOperator({ nonce: nonce3 });
             await tx3.wait();
-            console.log("Operator successfully registered for batch processing");
+            console.log("Operator successfully registered with TradeManager");
         }
-        
+
         // Verify registration
-        const isRegistered = await TradeManager.isOperatorRegistered(wallet.address);
+        const isRegistered = await tradeManager.isOperatorRegistered(wallet.address);
         console.log(`Operator registration verified: ${isRegistered}`);
     } catch (error: any) {
-        console.error("Error registering for batches:");
-        console.error("Message:", error.message);
-        if (error.reason) console.error("Reason:", error.reason);
-        if (error.data) console.error("Data:", error.data);
-        
-        // Check if it's because not registered with stake registry
-        try {
-            const isRegisteredWithStake = await ecdsaRegistryContract.operatorRegistered(wallet.address);
-            console.error(`Registered with ECDSAStakeRegistry: ${isRegisteredWithStake}`);
-        } catch (e) {
-            console.error("Could not check stake registry status");
-        }
+        console.error("Error registering with TradeManager:", error.message);
     }
 };
 
-// Structure to hold intent details
-interface Intent {
-    intentId: string;
-    user: string;
-    tokenIn: string;
-    tokenOut: string;
-    encryptedAmount: string;
-    deadline?: bigint;
-    decryptedAmount?: bigint;
+// Structure for strategy submission event
+interface StrategySubmission {
+    epochNumber: bigint;
+    submitter: string;
+    nodeCount: bigint;
+    submittedAt: bigint;
 }
 
-// Structure for internal transfers matching the hook's interface
-interface InternalTransfer {
-    to: string;
-    encToken: string;  // The encrypted token contract address
-    encAmount: CoFheItem;  // The encrypted amount (CoFheItem struct from CoFHE.js)
-}
-
-// Structure for user shares in AMM output
-interface UserShare {
-    user: string;
-    shareNumerator: bigint;
-    shareDenominator: bigint;
-}
-
-// Structure for the complete settlement
-interface SettlementData {
-    internalTransfers: InternalTransfer[];
-    netAmountIn: bigint;
-    zeroForOne: boolean;
-    tokenIn: string;
-    tokenOut: string;
-    outputToken: string;
-    userShares: UserShare[];
-}
-
-// FIFO matching algorithm - keep the original working logic
-const matchIntents = async (intents: Intent[], encryptedTokenMap: Map<string, string>): Promise<SettlementData> => {
-    console.log(`\n=== Starting FIFO Order Matching ===`);
-    console.log(`Processing ${intents.length} intents`);
-
-    const internalTransfers: InternalTransfer[] = [];
-    const unmatchedByPair = new Map<string, Intent[]>();
-
-    // Track matches for creating proper internal transfers
-    interface MatchedPair {
-        userA: string;
-        userB: string;
-        tokenA: string;
-        tokenB: string;
-        amount: bigint;
-    }
-    const matchedPairs: MatchedPair[] = [];
-
-    // Group intents by trading pair - KEEP ORIGINAL LOGIC
-    for (const intent of intents) {
-        const pair = `${intent.tokenIn}->${intent.tokenOut}`;
-        const reversePair = `${intent.tokenOut}->${intent.tokenIn}`;
-
-        // Check if there's a matching intent in the opposite direction
-        const reverseQueue = unmatchedByPair.get(reversePair) || [];
-
-        if (reverseQueue.length > 0) {
-            // Match with first intent in reverse queue (FIFO)
-            const matchedIntent = reverseQueue[0];
-            const matchAmount = intent.decryptedAmount! < matchedIntent.decryptedAmount!
-                ? intent.decryptedAmount!
-                : matchedIntent.decryptedAmount!;
-
-            // Store the matched pair for internal transfers
-            matchedPairs.push({
-                userA: matchedIntent.user,
-                userB: intent.user,
-                tokenA: matchedIntent.tokenIn,
-                tokenB: intent.tokenIn, // intent.tokenIn = matchedIntent.tokenOut
-                amount: matchAmount
-            });
-
-            console.log(`Matched: ${matchedIntent.user} <-> ${intent.user} for ${matchAmount}`);
-
-            // Update or remove matched intent
-            matchedIntent.decryptedAmount! -= matchAmount;
-            if (matchedIntent.decryptedAmount! === 0n) {
-                reverseQueue.shift();
-            }
-
-            // Update current intent
-            intent.decryptedAmount! -= matchAmount;
-
-            // If intent still has remaining amount, add to unmatched
-            if (intent.decryptedAmount! > 0n) {
-                if (!unmatchedByPair.has(pair)) {
-                    unmatchedByPair.set(pair, []);
-                }
-                unmatchedByPair.get(pair)!.push(intent);
-            }
-        } else {
-            // No match found, add to unmatched queue
-            if (!unmatchedByPair.has(pair)) {
-                unmatchedByPair.set(pair, []);
-            }
-            unmatchedByPair.get(pair)!.push(intent);
-        }
-    }
-
-    // Collect all amounts to encrypt for matched pairs
-    const amountsToEncrypt: bigint[] = [];
-    for (const match of matchedPairs) {
-        amountsToEncrypt.push(match.amount); // For tokenB transfer
-        amountsToEncrypt.push(match.amount); // For tokenA transfer
-    }
-
-    // Batch encrypt all matched amounts in one call using CoFHE.js
-    let encryptedAmounts: CoFheItem[] = [];
-    if (amountsToEncrypt.length > 0) {
-        console.log(`Batch encrypting ${amountsToEncrypt.length} transfer amounts...`);
-        // Convert amounts to EncryptionInput format (all as Uint128 for swap amounts)
-        const inputs: EncryptionInput[] = amountsToEncrypt.map(amount => ({
-            value: amount,
-            type: FheTypes.Uint128
-        }));
-        encryptedAmounts = await batchEncrypt(
-            inputs,
-            process.env.SWAP_MANAGER_ADDRESS,  // userAddress (TradeManager context)
-            process.env.HOOK_ADDRESS           // contractAddress (Hook address)
-        );
-    }
-
-    // Create internal transfers from matched pairs using batch encrypted amounts
-    let encryptIdx = 0;
-    for (const match of matchedPairs) {
-        // Transfer tokenA from userA to userB (userA gives tokenA, wants tokenB's opposite)
-        internalTransfers.push({
-            to: match.userB,
-            encToken: encryptedTokenMap.get(match.tokenA) || match.tokenA, // Use encrypted token address
-            encAmount: encryptedAmounts[encryptIdx++]
-        });
-
-        // Transfer tokenB from userB to userA (userB gives tokenB, wants tokenA's opposite)
-        internalTransfers.push({
-            to: match.userA,
-            encToken: encryptedTokenMap.get(match.tokenB) || match.tokenB, // Use encrypted token address
-            encAmount: encryptedAmounts[encryptIdx++]
-        });
-    }
-
-    // Calculate net swaps for remaining unmatched intents
-    let netAmountIn = 0n;
-    let tokenIn = ethers.ZeroAddress;
-    let tokenOut = ethers.ZeroAddress;
-    const userSharesMap = new Map<string, bigint>();
-
-    // Process all unmatched intents to find the dominant trading pair
-    for (const [pair, unmatched] of unmatchedByPair.entries()) {
-        if (unmatched.length > 0) {
-            const [pairTokenIn, pairTokenOut] = pair.split('->');
-
-            // Use the first pair as the primary swap direction
-            if (tokenIn === ethers.ZeroAddress) {
-                tokenIn = pairTokenIn;
-                tokenOut = pairTokenOut;
-            }
-
-            // Only count intents that match our primary swap direction
-            if (pairTokenIn === tokenIn && pairTokenOut === tokenOut) {
-                for (const intent of unmatched) {
-                    netAmountIn += intent.decryptedAmount!;
-                    userSharesMap.set(intent.user,
-                        (userSharesMap.get(intent.user) || 0n) + intent.decryptedAmount!
-                    );
-                }
-            }
-        }
-    }
-
-    // Convert user shares to the proper format
-    const userShares: UserShare[] = [];
-    if (netAmountIn > 0n) {
-        for (const [user, amount] of userSharesMap.entries()) {
-            userShares.push({
-                user,
-                shareNumerator: amount,
-                shareDenominator: netAmountIn
-            });
-        }
-    }
-
-    // outputToken should be the ENCRYPTED token contract, not the underlying token
-    // If there's no net AMM swap (all matched internally), use zero address
-    let outputEncryptedToken: string;
-    if (tokenOut === ethers.ZeroAddress) {
-        outputEncryptedToken = ethers.ZeroAddress;
-    } else {
-        const encToken = encryptedTokenMap.get(tokenOut);
-        if (!encToken) {
-            throw new Error(`No encrypted token found for ${tokenOut}`);
-        }
-        outputEncryptedToken = encToken;
-    }
-
-    console.log(`\n=== Matching Complete ===`);
-    console.log(`Internal transfers: ${internalTransfers.length / 2} pairs (${internalTransfers.length} transfers)`);
-    console.log(`Net AMM swap: ${netAmountIn} ${tokenIn} -> ${tokenOut}`);
-    console.log(`Output encrypted token: ${outputEncryptedToken}`);
-    console.log(`User shares: ${userShares.length}`);
-
-    // Determine zeroForOne based on token ordering
-    // Pool's currency0 < currency1 by address, so compare tokenIn with currency0
-    const zeroForOne = tokenIn.toLowerCase() < tokenOut.toLowerCase();
-
-    return {
-        internalTransfers,
-        netAmountIn,
-        zeroForOne,
-        tokenIn,
-        tokenOut,
-        outputToken: outputEncryptedToken, // Use encrypted token contract address
-        userShares
-    }
-};
-
-const processBatch = async (batchId: string, batchData: string) => {
+/**
+ * Process a submitted strategy: decrypt, simulate, and report APY
+ */
+const processStrategy = async (submission: StrategySubmission) => {
     try {
-        console.log(`\n=== Processing Batch ${batchId} ===`);
+        console.log(`\n=== Processing Strategy ===`);
+        console.log(`Epoch: ${submission.epochNumber}`);
+        console.log(`Submitter: ${submission.submitter}`);
+        console.log(`Nodes: ${submission.nodeCount}`);
 
-        // Decode the batch data from TradeManager.BatchFinalized event
-        // Format: abi.encode(batchId, batch.intentIds, poolId, address(this), encryptedIntents)
-        const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
-            ["bytes32", "bytes32[]", "bytes32", "address", "bytes[]"],
-            batchData
-        );
+        // Step 1: Fetch strategy nodes from contract
+        const nodeCount = Number(submission.nodeCount);
+        const encryptedHandles: CoFheItem[] = [];
+        const nodeStructures: any[] = [];
 
-        const [decodedBatchId, intentIds, poolId, hookAddr, encryptedIntentData] = decoded;
-
-        console.log(`Batch ID: ${decodedBatchId}`);
-        console.log(`Pool ID: ${poolId}`);
-        console.log(`Hook: ${hookAddr}`);
-        console.log(`Number of intents: ${encryptedIntentData.length}`);
-
-        // We need to get encrypted token addresses from the hook
-        // For now, we'll need to query them or include them in the batch data
-        // TODO: Add encrypted token mapping to batch data or query from hook
-
-        const hookABI = [
-            "function poolEncryptedTokens(bytes32 poolId, address currency) view returns (address)"
-        ];
-        const hookContract = new ethers.Contract(hookAddr, hookABI, provider);
-
-        // Decode all encrypted intents first
-        const intents: Intent[] = [];
-        const encryptedAmountsToDecrypt: string[] = [];
-
-        for (let i = 0; i < encryptedIntentData.length; i++) {
-            const intentData = encryptedIntentData[i];
-            const intentDecoded = ethers.AbiCoder.defaultAbiCoder().decode(
-                ["bytes32", "address", "address", "address", "uint256", "uint256"],
-                intentData
+        for (let i = 0; i < nodeCount; i++) {
+            const node = await tradeManager.getStrategyNode(
+                submission.epochNumber,
+                submission.submitter,
+                i
             );
 
-            const intent: Intent = {
-                intentId: intentDecoded[0],
-                user: intentDecoded[1],
-                tokenIn: intentDecoded[2],
-                tokenOut: intentDecoded[3],
-                encryptedAmount: intentDecoded[4].toString(), // Keep as string of the uint256 handle
-                deadline: BigInt(intentDecoded[5].toString())
-            };
+            nodeStructures.push(node);
 
-            intents.push(intent);
-            encryptedAmountsToDecrypt.push(intent.encryptedAmount);
-        }
+            // Collect all handles for batch decryption
+            // encoder (address), target (address), selector (uint32), args (dynamic)
+            encryptedHandles.push({
+                ctHash: BigInt(node.encoderHandle),
+                securityZone: 0,
+                utype: FheTypes.Address,
+                signature: '0x'
+            });
+            encryptedHandles.push({
+                ctHash: BigInt(node.targetHandle),
+                securityZone: 0,
+                utype: FheTypes.Address,
+                signature: '0x'
+            });
+            encryptedHandles.push({
+                ctHash: BigInt(node.selectorHandle),
+                securityZone: 0,
+                utype: FheTypes.Uint32,
+                signature: '0x'
+            });
 
-        // Get encrypted token addresses for this pool
-        const uniqueTokens = new Set<string>();
-        intents.forEach(i => {
-            uniqueTokens.add(i.tokenIn);
-            uniqueTokens.add(i.tokenOut);
-        });
-
-        const encryptedTokenMap = new Map<string, string>();
-        for (const token of uniqueTokens) {
-            const encToken = await hookContract.poolEncryptedTokens(poolId, token);
-            encryptedTokenMap.set(token, encToken);
-            console.log(`Encrypted token for ${token}: ${encToken}`);
-        }
-
-        // Batch decrypt all amounts in one call
-        // For swaps, encrypted amounts are euint128 handles (utype = 6)
-        console.log(`\nBatch decrypting ${intents.length} swap intents...`);
-
-        // Create CoFheItem structs from euint128 handles
-        const encryptedItems: CoFheItem[] = encryptedAmountsToDecrypt.map(handle => ({
-            ctHash: BigInt(handle),
-            securityZone: 0, // Default security zone
-            utype: FheTypes.Uint128, // Swap amounts are always Uint128
-            signature: '0x' // Not needed for decryption
-        }));
-
-        const decryptedValues = await batchDecrypt(encryptedItems);
-
-        // Assign decrypted amounts back to intents
-        for (let i = 0; i < intents.length; i++) {
-            intents[i].decryptedAmount = BigInt(decryptedValues[i]);
-            console.log(`Intent ${i + 1}: ${intents[i].user}`);
-            console.log(`  ${intents[i].tokenIn} -> ${intents[i].tokenOut}`);
-            console.log(`  Amount: ${intents[i].decryptedAmount}`);
-        }
-
-        // Match intents and get settlement data (pass encrypted token map)
-        const settlementData = await matchIntents(intents, encryptedTokenMap);
-
-        // Submit settlement to TradeManager (NOT hook directly!)
-        console.log("\n=== Submitting Settlement to TradeManager ===");
-
-        // Convert internalTransfers encAmount to InEuint128 struct format for contract
-        // CoFHE.js returns: {ctHash, securityZone, utype, signature}
-        // Contract expects: InEuint128 {ctHash: uint256, securityZone: uint8, utype: uint8, signature: bytes}
-        const internalTransfersForContract = settlementData.internalTransfers.map(t => ({
-            to: t.to,
-            encToken: t.encToken,
-            encAmount: {
-                ctHash: t.encAmount.ctHash,
-                securityZone: t.encAmount.securityZone,
-                utype: t.encAmount.utype,
-                signature: t.encAmount.signature
+            // Add arg handles
+            for (const arg of node.argHandles) {
+                encryptedHandles.push({
+                    ctHash: BigInt(arg.handle),
+                    securityZone: 0,
+                    utype: arg.utype,
+                    signature: '0x'
+                });
             }
-        }));
+        }
 
-        // Create message hash using solidityPackedKeccak256 to match contract's abi.encodePacked
-        const messageHash = ethers.solidityPackedKeccak256(
-            ["bytes32", "uint128", "address", "address", "address"],
-            [
-                decodedBatchId,
-                settlementData.netAmountIn,
-                settlementData.tokenIn,
-                settlementData.tokenOut,
-                settlementData.outputToken
-            ]
+        console.log(`\nBatch decrypting ${encryptedHandles.length} FHE values...`);
+
+        // Step 2: Batch decrypt all handles
+        const decryptedValues = await batchDecrypt(encryptedHandles);
+
+        // Step 3: Parse decrypted values into DecryptedNode format
+        const decryptedNodes: DecryptedNode[] = [];
+        let valueIdx = 0;
+
+        for (let i = 0; i < nodeCount; i++) {
+            const node = nodeStructures[i];
+
+            // Parse encoder, target, selector using type-aware parsing
+            const encoder = parseDecryptedValue(decryptedValues[valueIdx++], FheTypes.Address) as string;
+            const target = parseDecryptedValue(decryptedValues[valueIdx++], FheTypes.Address) as string;
+            const selectorValue = decryptedValues[valueIdx++];
+            const selector = '0x' + selectorValue.toString(16).padStart(8, '0');
+
+            // Map protocol and function name from target address and selector
+            const funcInfo = getProtocolFunction(target, selector);
+            const { protocol, functionName } = funcInfo;
+
+            // Parse args based on their utypes and map to semantic names
+            const args: any = {};
+            for (let j = 0; j < node.argHandles.length; j++) {
+                const argValue = decryptedValues[valueIdx++];
+                const argType = node.argHandles[j].utype;
+                const parsedValue = parseDecryptedValue(argValue, argType);
+
+                // Store with both positional and semantic name
+                args[`arg${j}`] = parsedValue;
+
+                // Get semantic name from protocolMapping if available
+                const funcDetails = getFunctionFromSelector(selector);
+                if (funcDetails && funcDetails.argNames && funcDetails.argNames[j]) {
+                    const argName = funcDetails.argNames[j];
+                    args[argName] = parsedValue;
+                    console.log(`    Arg[${j}] (${argName}): utype=${argType}, value=${parsedValue}`);
+                } else {
+                    console.log(`    Arg[${j}]: utype=${argType}, value=${parsedValue}`);
+                }
+            }
+
+            console.log(`\nDecrypted Node ${i}:`);
+            console.log(`  Encoder: ${encoder}`);
+            console.log(`  Target: ${target}`);
+            console.log(`  Selector: ${selector}`);
+            console.log(`  Protocol: ${protocol}`);
+            console.log(`  Function: ${functionName}`);
+            console.log(`  Args:`, args);
+
+            decryptedNodes.push({
+                protocol,
+                functionName,
+                target,
+                args
+            });
+        }
+
+        // Step 4: Get epoch config for initial capital
+        const epoch = await tradeManager.epochs(submission.epochNumber);
+        const initialCapital = epoch.notionalPerTrader;
+        console.log(`\nInitial Capital (from epoch): ${initialCapital}`);
+
+        // Step 5: Simulate strategy and calculate APY
+        const simulatedAPY = simulate(decryptedNodes, initialCapital);
+        console.log(`Calculated APY: ${simulatedAPY / 100}% (${simulatedAPY} bps)`);
+
+        // Encrypt the APY using CoFHE.js
+        console.log("Encrypting APY...");
+        const apyInput: EncryptionInput[] = [{
+            value: BigInt(simulatedAPY),
+            type: FheTypes.Uint16
+        }];
+
+        const encryptedAPYs = await batchEncrypt(
+            apyInput,
+            submission.submitter, // userAddress (trader who owns the APY)
+            tradeManagerAddress  // contractAddress
         );
 
-        // Sign the message hash - signMessage will add EIP-191 prefix automatically
-        const signature = await wallet.signMessage(ethers.getBytes(messageHash));
+        const encryptedAPY = encryptedAPYs[0];
 
-        console.log(`Message hash: ${messageHash}`);
-        console.log(`Signature: ${signature}`);
-
-        // Debug: recover signer to verify
-        const recoveredSigner = ethers.verifyMessage(ethers.getBytes(messageHash), signature);
-        console.log(`Operator address: ${wallet.address}`);
-        console.log(`Recovered signer: ${recoveredSigner}`);
-        console.log(`Match: ${recoveredSigner.toLowerCase() === wallet.address.toLowerCase()}`);
-
-        // Get current gas price and boost by 20% for faster transactions
-        const feeData = await provider.getFeeData();
-        const gasPrice = (feeData.gasPrice! * 120n) / 100n;
-        console.log(`Using gas price (120% boost): ${gasPrice.toString()}`);
-
-        // Debug: log all parameters before submission
-        console.log("\n=== Settlement Parameters ===");
-        console.log("Batch ID:", decodedBatchId);
-        console.log("Internal Transfers:", internalTransfersForContract.length);
-        console.log("Net Amount In:", settlementData.netAmountIn.toString());
-        console.log("Token In:", settlementData.tokenIn);
-        console.log("Token Out:", settlementData.tokenOut);
-        console.log("Output Token:", settlementData.outputToken);
-        console.log("User Shares:", settlementData.userShares.length);
-        console.log("Signatures:", [signature].length);
-
-        // Submit to TradeManager.submitBatchSettlement()
-        // Note: No inputProof needed with CoFHE.js - encrypted values are self-contained
+        // Report encrypted APY to TradeManager
+        console.log("Reporting encrypted APY to TradeManager...");
         const nonce = await wallet.getNonce();
-        const tx = await TradeManager.submitBatchSettlement(
-            decodedBatchId,
-            internalTransfersForContract,
-            settlementData.netAmountIn,
-            settlementData.tokenIn,
-            settlementData.tokenOut,
-            settlementData.outputToken,
-            settlementData.userShares,
-            [signature], // Array of operator signatures
+        const tx = await tradeManager.reportEncryptedAPY(
+            submission.epochNumber,
+            submission.submitter,
             {
-                nonce,
-                gasLimit: 5000000, // Manual gas limit to avoid estimation issues
-                gasPrice: gasPrice // 120% of current gas price for faster inclusion
-            }
+                ctHash: encryptedAPY.ctHash,
+                securityZone: encryptedAPY.securityZone,
+                utype: encryptedAPY.utype,
+                signature: encryptedAPY.signature
+            },
+            { nonce }
         );
 
-        console.log(`Settlement transaction submitted: ${tx.hash}`);
+        console.log(`APY report transaction: ${tx.hash}`);
         const receipt = await tx.wait();
-        console.log(`Settlement confirmed in block ${receipt.blockNumber}`);
+        console.log(`APY report confirmed in block ${receipt.blockNumber}`);
 
-        return {
-            batchId: decodedBatchId,
-            settlementData,
-            txHash: tx.hash,
-            blockNumber: receipt.blockNumber
-        };
     } catch (error) {
-        console.error(`Error processing batch ${batchId}:`, error);
+        console.error(`Error processing strategy for ${submission.submitter}:`, error);
     }
 };
 
-const monitorBatches = async () => {
-    console.log("✅ Monitoring for new batches from TradeManager...");
+/**
+ * Monitor for strategy submissions and process them
+ */
+const monitorStrategies = async () => {
+    console.log("\n✅ Monitoring for strategy submissions...");
 
     let lastProcessedBlock = await provider.getBlockNumber();
-    const processedBatches = new Set<string>();
+    const processedSubmissions = new Set<string>();
 
-    // Query past BatchFinalized events first
+    // Query past StrategySubmitted events first
     try {
-        const filter = TradeManager.filters.BatchFinalized();
+        const filter = tradeManager.filters.StrategySubmitted();
         const fromBlock = Math.max(0, lastProcessedBlock - 1000);
-        const events = await TradeManager.queryFilter(filter, fromBlock, lastProcessedBlock);
+        const events = await tradeManager.queryFilter(filter, fromBlock, lastProcessedBlock);
 
         if (events.length > 0) {
-            console.log(`Found ${events.length} past BatchFinalized events`);
+            console.log(`Found ${events.length} past StrategySubmitted events`);
             for (const event of events) {
-                const parsedLog = TradeManager.interface.parseLog({
+                const parsedLog = tradeManager.interface.parseLog({
                     topics: event.topics as string[],
                     data: event.data
                 });
                 if (parsedLog) {
-                    const batchId = parsedLog.args[0];
-                    console.log(`  Past batch: ${batchId}, Block: ${event.blockNumber}`);
-                    processedBatches.add(batchId);
+                    const key = `${parsedLog.args[0]}-${parsedLog.args[1]}`;
+                    console.log(`  Past strategy: Epoch ${parsedLog.args[0]}, Submitter: ${parsedLog.args[1]}`);
+                    processedSubmissions.add(key);
                 }
             }
         } else {
-            console.log("No past BatchFinalized events found");
+            console.log("No past StrategySubmitted events found");
         }
     } catch (error) {
         console.error("Error querying past events:", error);
     }
 
-    // Use polling instead of event listeners for Ankr RPC
-    console.log("Starting event polling (Ankr doesn't support filters)...");
+    // Use polling for new events
+    console.log("Starting event polling...");
     setInterval(async () => {
         try {
             const currentBlock = await provider.getBlockNumber();
 
             if (currentBlock > lastProcessedBlock) {
-                const filter = TradeManager.filters.BatchFinalized();
-                const events = await TradeManager.queryFilter(filter, lastProcessedBlock + 1, currentBlock);
+                const filter = tradeManager.filters.StrategySubmitted();
+                const events = await tradeManager.queryFilter(filter, lastProcessedBlock + 1, currentBlock);
 
                 for (const event of events) {
-                    const parsedLog = TradeManager.interface.parseLog({
+                    const parsedLog = tradeManager.interface.parseLog({
                         topics: event.topics as string[],
                         data: event.data
                     });
 
                     if (parsedLog) {
-                        const batchId = parsedLog.args[0];
-                        const batchData = parsedLog.args[1];
+                        const submission: StrategySubmission = {
+                            epochNumber: parsedLog.args[0],
+                            submitter: parsedLog.args[1],
+                            nodeCount: parsedLog.args[2],
+                            submittedAt: parsedLog.args[3]
+                        };
 
-                        if (!processedBatches.has(batchId)) {
-                            console.log(`\n🚀 New batch detected: ${batchId}`);
+                        const key = `${submission.epochNumber}-${submission.submitter}`;
+
+                        if (!processedSubmissions.has(key)) {
+                            console.log(`\n🚀 New strategy detected!`);
+                            console.log(`  Epoch: ${submission.epochNumber}`);
+                            console.log(`  Submitter: ${submission.submitter}`);
                             console.log(`  Block: ${event.blockNumber}`);
-                            console.log(`  Transaction: ${event.transactionHash}`);
 
-                            processedBatches.add(batchId);
-                            await processBatch(batchId, batchData);
+                            processedSubmissions.add(key);
+                            await processStrategy(submission);
                         }
                     }
                 }
@@ -642,22 +422,19 @@ const monitorBatches = async () => {
 };
 
 const main = async () => {
+    console.log("\n🎯 CipherTradeArena Operator Starting...\n");
+
     // Initialize contracts and load deployment configuration
     await initializeContracts();
 
     // Initialize CoFHE.js for FHE operations
     await initializeCofhe(wallet);
 
+    // Register as operator
     await registerOperator();
 
-    // Monitor for swap batches
-    monitorBatches().catch((error) => {
-        console.error("Error monitoring batches:", error);
-    });
-
-    // Monitor for UEI events
-    // console.log("\n🔍 Starting UEI monitoring...");
-    // monitorUEIEvents(TradeManager, wallet, TradeManagerAddress);
+    // Monitor for strategy submissions
+    await monitorStrategies();
 };
 
 main().catch((error) => {
