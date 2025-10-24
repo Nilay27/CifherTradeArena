@@ -219,6 +219,12 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         uint256 totalDeployed
     );
 
+    event StrategyExecutionFailed(
+        uint256 indexed epochNumber,
+        address indexed target,
+        bytes calldata_data
+    );
+
     /**
      * @notice Deterministically select operators for an epoch
      * @dev Used for epoch-based operator selection in CipherTradeArena
@@ -546,6 +552,77 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
 
         epoch.state = EpochState.FINALIZED;
         emit EpochFinalized(epochNumber, winners, decryptedAPYs, allocations);
+    }
+
+    /**
+     * @notice Execute aggregated strategies for finalized epoch
+     * @dev Called by operator with batched/deduplicated strategy calls
+     * @param epochNumber The epoch number to execute
+     * @param encoders Array of encoder/sanitizer addresses
+     * @param targets Array of target protocol addresses
+     * @param calldatas Array of calldata (functionSelector + args)
+     * @param operatorSignatures Array of operator signatures for consensus
+     */
+    function executeEpochTopStrategiesAggregated(
+        uint256 epochNumber,
+        address[] calldata encoders,
+        address[] calldata targets,
+        bytes[] calldata calldatas,
+        bytes[] calldata operatorSignatures
+    ) external onlyOperator {
+        require(epochNumber <= currentEpochNumber, "Invalid epoch");
+        EpochData storage epoch = epochs[epochNumber];
+
+        require(epoch.state == EpochState.FINALIZED, "Epoch not finalized");
+        require(encoders.length == targets.length, "Arrays length mismatch");
+        require(targets.length == calldatas.length, "Arrays length mismatch");
+        require(targets.length > 0, "No strategies to execute");
+        require(boringVault != address(0), "BoringVault not set");
+
+        // Verify operator is selected for this epoch
+        bool isSelected = false;
+        for (uint256 i = 0; i < epoch.selectedOperators.length; i++) {
+            if (epoch.selectedOperators[i] == msg.sender) {
+                isSelected = true;
+                break;
+            }
+        }
+        require(isSelected, "Operator not selected for this epoch");
+
+        // Verify consensus signatures
+        uint256 validSignatures = 0;
+        bytes32 dataHash = keccak256(abi.encode(epochNumber, encoders, targets, calldatas));
+
+        for (uint256 i = 0; i < operatorSignatures.length && i < epoch.selectedOperators.length; i++) {
+            address signer = dataHash.toEthSignedMessageHash().recover(operatorSignatures[i]);
+
+            // Check if signer is a selected operator
+            for (uint256 j = 0; j < epoch.selectedOperators.length; j++) {
+                if (epoch.selectedOperators[j] == signer) {
+                    validSignatures++;
+                    break;
+                }
+            }
+        }
+
+        require(validSignatures >= MIN_ATTESTATIONS, "Insufficient consensus");
+
+        // Execute aggregated strategies via BoringVault
+        uint256 successfulExecutions = 0;
+        for (uint256 i = 0; i < targets.length; i++) {
+            try SimpleBoringVault(boringVault).execute(targets[i], calldatas[i], 0) {
+                successfulExecutions++;
+            } catch {
+                // Log failed execution but continue with others
+                emit StrategyExecutionFailed(epochNumber, targets[i], calldatas[i]);
+            }
+        }
+
+        require(successfulExecutions > 0, "All strategy executions failed");
+
+        // Transition epoch to EXECUTED
+        epoch.state = EpochState.EXECUTED;
+        emit EpochExecuted(epochNumber, epoch.allocatedCapital);
     }
 
     /**

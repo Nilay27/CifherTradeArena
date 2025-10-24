@@ -5,6 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {CoFheUtils} from "./utils/CoFheUtils.sol";
 import {TradeManager} from "../src/TradeManager.sol";
 import {DynamicInE} from "../src/ITradeManager.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {
     FHE,
     InEuint64,
@@ -21,6 +22,8 @@ import {
 } from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 contract TradeManagerTest is CoFheUtils {
+    using ECDSA for bytes32;
+
     TradeManager public tradeManager;
 
     address public admin;
@@ -42,8 +45,8 @@ contract TradeManagerTest is CoFheUtils {
 
         // Setup test accounts
         admin = makeAddr("admin");
-        operator1 = makeAddr("operator1");
-        operator2 = makeAddr("operator2");
+        operator1 = vm.addr(2); // Private key = 2
+        operator2 = vm.addr(3); // Private key = 3
         trader1 = makeAddr("trader1");
         trader2 = makeAddr("trader2");
 
@@ -886,5 +889,146 @@ contract TradeManagerTest is CoFheUtils {
         vm.expectRevert("Epoch not closed");
         vm.prank(operator1);
         tradeManager.finalizeEpoch(1, winners, decryptedAPYs);
+    }
+
+    // ========================================= EPOCH EXECUTION TESTS =========================================
+
+    function test_ExecuteEpochTopStrategiesAggregated() public {
+        // Setup: Full epoch flow up to finalization
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+
+        // Deploy and set BoringVault
+        address mockVault = address(new MockBoringVault());
+        tradeManager.setBoringVault(payable(mockVault));
+        vm.stopPrank();
+
+        // Submit strategies
+        InEaddress[] memory encoders = new InEaddress[](1);
+        InEaddress[] memory targets = new InEaddress[](1);
+        InEuint32[] memory selectors = new InEuint32[](1);
+        DynamicInE[][] memory nodeArgs = new DynamicInE[][](1);
+
+        encoders[0] = createInEaddress(makeAddr("encoder"), trader1);
+        targets[0] = createInEaddress(makeAddr("target"), trader1);
+        selectors[0] = createInEuint32(0x12345678, trader1);
+        nodeArgs[0] = new DynamicInE[](0);
+
+        vm.prank(trader1);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        encoders[0] = createInEaddress(makeAddr("encoder2"), trader2);
+        targets[0] = createInEaddress(makeAddr("target2"), trader2);
+        selectors[0] = createInEuint32(0x87654321, trader2);
+
+        vm.prank(trader2);
+        tradeManager.submitEncryptedStrategy(encoders, targets, selectors, nodeArgs);
+
+        // Report APYs
+        InEuint16 memory apy1 = createInEuint16(1234, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader1, apy1);
+
+        InEuint16 memory apy2 = createInEuint16(5678, operator1);
+        vm.prank(operator1);
+        tradeManager.reportEncryptedAPY(1, trader2, apy2);
+
+        // Close and finalize epoch
+        vm.warp(block.timestamp + 1 days + 1);
+        tradeManager.closeEpoch(1);
+
+        vm.warp(block.timestamp + 11);
+
+        address[] memory winners = new address[](2);
+        winners[0] = trader2;
+        winners[1] = trader1;
+
+        uint256[] memory decryptedAPYs = new uint256[](2);
+        decryptedAPYs[0] = 5678;
+        decryptedAPYs[1] = 1234;
+
+        vm.prank(operator1);
+        tradeManager.finalizeEpoch(1, winners, decryptedAPYs);
+
+        // Execute aggregated strategies
+        address[] memory execEncoders = new address[](2);
+        execEncoders[0] = makeAddr("encoder");
+        execEncoders[1] = makeAddr("encoder2");
+
+        address[] memory execTargets = new address[](2);
+        execTargets[0] = makeAddr("target");
+        execTargets[1] = makeAddr("target2");
+
+        bytes[] memory execCalldatas = new bytes[](2);
+        execCalldatas[0] = abi.encodeWithSelector(bytes4(0x12345678));
+        execCalldatas[1] = abi.encodeWithSelector(bytes4(0x87654321));
+
+        // Create operator signature
+        bytes[] memory signatures = new bytes[](1);
+        bytes32 messageHash = keccak256(abi.encode(1, execEncoders, execTargets, execCalldatas));
+        bytes32 ethSigned = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            messageHash
+        ));
+
+        // Sign with operator1's private key (2)
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(2, ethSigned);
+        signatures[0] = abi.encodePacked(r, s, v);
+
+        vm.prank(operator1);
+        tradeManager.executeEpochTopStrategiesAggregated(1, execEncoders, execTargets, execCalldatas, signatures);
+
+        // Verify epoch state is EXECUTED
+        TradeManager.EpochState state = tradeManager.getEpochState(1);
+        assertEq(uint256(state), uint256(TradeManager.EpochState.EXECUTED));
+    }
+
+    function test_RevertWhen_ExecuteEpochNotFinalized() public {
+        // Setup epoch but don't finalize
+        vm.prank(operator1);
+        tradeManager.registerOperator();
+
+        uint8[] memory weights = new uint8[](2);
+        weights[0] = 60;
+        weights[1] = 40;
+        InEuint64 memory encSimStart = createInEuint64(uint64(block.timestamp - 7 days), admin);
+        InEuint64 memory encSimEnd = createInEuint64(uint64(block.timestamp - 1 days), admin);
+
+        vm.startPrank(admin);
+        tradeManager.startEpoch(encSimStart, encSimEnd, 1 days, weights, 100_000e6, 1_000_000e6);
+        vm.stopPrank();
+
+        // Try to execute without finalizing
+        address[] memory execEncoders = new address[](1);
+        execEncoders[0] = makeAddr("encoder");
+
+        address[] memory execTargets = new address[](1);
+        execTargets[0] = makeAddr("target");
+
+        bytes[] memory execCalldatas = new bytes[](1);
+        execCalldatas[0] = abi.encodeWithSelector(bytes4(0x12345678));
+
+        bytes[] memory signatures = new bytes[](0);
+
+        vm.expectRevert("Epoch not finalized");
+        vm.prank(operator1);
+        tradeManager.executeEpochTopStrategiesAggregated(1, execEncoders, execTargets, execCalldatas, signatures);
+    }
+}
+
+// Mock BoringVault for testing
+contract MockBoringVault {
+    function execute(address target, bytes calldata data, uint256 value) external returns (bytes memory) {
+        // Mock successful execution
+        return "";
     }
 }
