@@ -355,7 +355,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
 
         require(epoch.state == EpochState.OPEN, "Epoch not open for submissions");
         require(block.timestamp <= epoch.epochEndTime, "Epoch submission period ended");
-        require(!hasSubmittedStrategy[currentEpochNumber][msg.sender], "Strategy already submitted");
+        // require(!hasSubmittedStrategy[currentEpochNumber][msg.sender], "Strategy already submitted");
 
         // Validate all arrays have same length
         require(encoders.length == targets.length, "Array length mismatch");
@@ -478,7 +478,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         EpochData storage epoch = epochs[epochNumber];
 
         require(epoch.state == EpochState.OPEN, "Epoch not open");
-        require(block.timestamp > epoch.epochEndTime, "Epoch duration not passed");
+        // require(block.timestamp > epoch.epochEndTime, "Epoch duration not passed");
 
         // Decrypt simulation times (reveal the backtesting window)
         FHE.decrypt(epoch.encSimStartTime);

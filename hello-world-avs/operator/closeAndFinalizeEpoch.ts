@@ -186,29 +186,52 @@ async function main() {
     // Re-fetch epoch to ensure we have latest data with all fields
     const epochData = await tradeManager.epochs(epochNumber);
 
-    // Debug: Try to access weights from the EpochStarted event instead
-    // Since struct parsing is buggy, let's get it from the event
-    const epochStartedFilter = tradeManager.filters.EpochStarted(epochNumber);
-    const currentBlock = await provider.getBlockNumber();
-    const fromBlock = Math.max(0, currentBlock - 10000);
-    const epochEvents = await tradeManager.queryFilter(epochStartedFilter, fromBlock, currentBlock);
-
     let weightsArray: number[] = [];
 
-    if (epochEvents.length > 0) {
-        const event = epochEvents[0];
-        const parsedEvent = tradeManager.interface.parseLog({
-            topics: event.topics as string[],
-            data: event.data
-        });
+    // Primary source: struct field (ethers v6 exposes dynamic arrays on the result)
+    if (epochData.weights && Array.isArray(epochData.weights)) {
+        weightsArray = epochData.weights.map((weight: any) => Number(weight));
+    }
 
-        if (parsedEvent) {
-            // EpochStarted event has weights as one of its parameters
-            const eventWeights = parsedEvent.args.weights;
-            console.log(`  Debug - Weights from event:`, eventWeights);
+    // Fallback: query EpochStarted event if struct field isn't available (e.g. older ABI)
+    if (weightsArray.length === 0) {
+        const epochStartedFilter = tradeManager.filters.EpochStarted(epochNumber);
+        const currentBlock = await provider.getBlockNumber();
+        const searchWindow = 5000;
+        let fromBlock = currentBlock > searchWindow ? currentBlock - searchWindow : 0;
+        let epochEvent = null;
 
-            for (let i = 0; i < eventWeights.length; i++) {
-                weightsArray.push(Number(eventWeights[i]));
+        while (!epochEvent && fromBlock >= 0) {
+            const toBlock = fromBlock + searchWindow;
+            try {
+                const events = await tradeManager.queryFilter(epochStartedFilter, fromBlock, toBlock);
+                if (events.length > 0) {
+                    epochEvent = events[0];
+                    break;
+                }
+                if (fromBlock === 0) {
+                    break;
+                }
+                fromBlock = fromBlock > searchWindow ? fromBlock - searchWindow : 0;
+            } catch (err: any) {
+                if (err?.code === -32062) {
+                    // Block range too large: reduce window and retry
+                    fromBlock = Math.max(0, fromBlock - Math.floor(searchWindow / 2));
+                    continue;
+                }
+                throw err;
+            }
+        }
+
+        if (epochEvent) {
+            const parsedEvent = tradeManager.interface.parseLog({
+                topics: epochEvent.topics as string[],
+                data: epochEvent.data
+            });
+
+            if (parsedEvent?.args?.weights) {
+                console.log(`  Debug - Weights from event:`, parsedEvent.args.weights);
+                weightsArray = Array.from(parsedEvent.args.weights).map((weight: any) => Number(weight));
             }
         }
     }

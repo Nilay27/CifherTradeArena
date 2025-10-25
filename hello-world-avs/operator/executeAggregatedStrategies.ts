@@ -40,7 +40,7 @@ function reconstructCalldata(
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
-        const utype = argTypes[i];
+        const utype = Number(argTypes[i]);
 
         if (utype === FheTypes.Bool) {
             solidityTypes.push('bool');
@@ -60,7 +60,7 @@ function reconstructCalldata(
         } else if (utype === FheTypes.Uint128) {
             solidityTypes.push('uint128');
             encodedArgs.push(arg);
-        } else if (utype === FheTypes.Uint160) {
+        } else if (utype === FheTypes.Uint160 || utype === FheTypes.Address) {
             solidityTypes.push('address');
             const addr = typeof arg === 'string' ? arg : ethers.getAddress(ethers.toBeHex(BigInt(arg), 20));
             encodedArgs.push(addr);
@@ -184,7 +184,7 @@ async function main() {
     // ============================================================
     console.log("Step 1: Checking epoch state...");
     const epochData = await tradeManager.epochs(epochNumber);
-    const epochState = Number(epochData[7]); // state is at index 7
+    const epochState = Number(epochData.state);
 
     console.log(`  Epoch State: ${epochState} (0=OPEN, 1=CLOSED, 2=FINALIZED, 3=EXECUTED)`);
 
@@ -299,7 +299,12 @@ async function main() {
         if (executedEvent) {
             console.log(`\n📋 EpochExecuted Event:`);
             console.log(`  Epoch: ${executedEvent.args.epochNumber}`);
-            console.log(`  Capital Deployed: ${ethers.formatUnits(executedEvent.args.allocatedCapital, 6)} USDC`);
+            const totalDeployedRaw = executedEvent.args.totalDeployed ?? 0n;
+            const totalDeployed =
+                typeof totalDeployedRaw === 'bigint'
+                    ? totalDeployedRaw
+                    : BigInt(totalDeployedRaw.toString());
+            console.log(`  Capital Deployed: ${ethers.formatUnits(totalDeployed, 6)} USDC`);
         }
 
         console.log(`\n✅ Epoch ${epochNumber} executed successfully!`);

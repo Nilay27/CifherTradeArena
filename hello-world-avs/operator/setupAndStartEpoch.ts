@@ -84,10 +84,10 @@ async function main() {
     // Step 3: Start epoch
     console.log("\nStep 3: Starting epoch...");
 
-    const epochDuration = 10 * 60; // 5 minutes
-    const weights = [50, 30, 20];
+    const epochDuration = 5 * 60; // 5 minutes
+    const weights = [100];
     const notionalPerTrader = ethers.parseUnits("100000", 6); // 100k USDC
-    const allocatedCapital = ethers.parseUnits("1000000", 6); // 1M USDC
+    const allocatedCapital = ethers.parseUnits("100000", 6); // 1M USDC
 
     console.log(`  Duration: ${epochDuration / 60} minutes`);
     console.log(`  Weights: [${weights.join(', ')}]`);
