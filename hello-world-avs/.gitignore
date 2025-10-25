@@ -33,4 +33,7 @@ debug/
 yarn.lock
 contracts/deployments/
 
+# Ignore operator database (contains strategy data)
+operator/data/
+
 **/.DS_Store

@@ -194,15 +194,11 @@ async function main() {
         nodeArgs.push(encryptedArgs);
     }
 
-    // Initialize TradeManager contract
-    const TRADE_MANAGER_ABI = [
-        "function submitEncryptedStrategy(tuple(uint256 ctHash, uint32 securityZone, uint8 utype, bytes signature)[] encoders, tuple(uint256 ctHash, uint32 securityZone, uint8 utype, bytes signature)[] targets, tuple(uint256 ctHash, uint32 securityZone, uint8 utype, bytes signature)[] selectors, tuple(uint256 ctHash, uint32 securityZone, uint8 utype, bytes signature)[][] nodeArgs) external",
-        "function currentEpochNumber() external view returns (uint256)",
-        "function epochs(uint256) external view returns (uint64 encSimStartTime, uint64 encSimEndTime, uint64 epochStartTime, uint64 epochEndTime, uint256 notionalPerTrader, uint256 allocatedCapital, uint8 state)",
-        "event StrategySubmitted(uint256 indexed epochNumber, address indexed trader, uint256 timestamp)"
-    ];
-
-    const tradeManager = new ethers.Contract(tradeManagerAddress, TRADE_MANAGER_ABI, wallet);
+    // Initialize TradeManager contract - use full ABI
+    const tradeManagerABI = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, '../abis/TradeManager.json'), 'utf8')
+    );
+    const tradeManager = new ethers.Contract(tradeManagerAddress, tradeManagerABI, wallet);
 
     // Get current epoch
     const currentEpoch = await tradeManager.currentEpochNumber();
@@ -214,13 +210,14 @@ async function main() {
         process.exit(1);
     }
 
-    // Check epoch state (0=PENDING, 1=OPEN, 2=CLOSED, 3=FINALIZED)
+    // Check epoch state (0=OPEN, 1=CLOSED, 2=FINALIZED, 3=EXECUTED)
     const epoch = await tradeManager.epochs(currentEpoch);
-    console.log(`Epoch State: ${epoch.state} (1=OPEN, 2=CLOSED)`);
+    const epochState = Number(epoch.state);
+    console.log(`Epoch State: ${epochState} (0=OPEN, 1=CLOSED, 2=FINALIZED)`);
     console.log(`Epoch End Time: ${new Date(Number(epoch.epochEndTime) * 1000).toISOString()}\n`);
 
-    if (epoch.state !== 1) {
-        console.error(`❌ Epoch is not OPEN (state=${epoch.state}). Cannot submit strategy.`);
+    if (epochState !== 0) {
+        console.error(`❌ Epoch is not OPEN (state=${epochState}). Cannot submit strategy.`);
         process.exit(1);
     }
 

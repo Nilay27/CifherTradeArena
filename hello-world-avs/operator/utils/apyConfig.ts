@@ -30,21 +30,21 @@ export function getAPYConfig(chainId: number): APYRate[] {
             protocol: "pendle",
             function: "swapExactTokenForPt",
             market: deployment.markets.PT_eUSDE, // PT-eUSDE market (7% APY)
-            apy: 700,
+            apy: 1300,
             type: "yield"
         },
         {
             protocol: "pendle",
             function: "swapExactTokenForPt",
             market: deployment.markets.PT_sUSDE, // PT-sUSDE market (8% APY)
-            apy: 800,
+            apy: 1400,
             type: "yield"
         },
         {
             protocol: "pendle",
             function: "swapExactTokenForPt",
             market: deployment.markets.PT_USR, // PT-USR market (10% APY)
-            apy: 1000,
+            apy: 1700,
             type: "yield"
         },
 

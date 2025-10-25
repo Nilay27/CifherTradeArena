@@ -3,6 +3,7 @@ import * as dotenv from "dotenv";
 import { initializeCofhe, batchDecrypt, batchEncrypt, FheTypes, CoFheItem, EncryptionInput } from "./cofheUtils";
 import { simulate, DecryptedNode } from "./utils/strategySimulator";
 import { getProtocolFunction, getFunctionFromSelector, initializeProtocolAddresses } from "./utils/protocolMapping";
+import { saveStrategy, StrategyNode } from "./epochDatabase";
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
@@ -243,6 +244,7 @@ const processStrategy = async (submission: StrategySubmission) => {
 
         // Step 3: Parse decrypted values into DecryptedNode format
         const decryptedNodes: DecryptedNode[] = [];
+        const dbNodes: StrategyNode[] = []; // For database storage
         let valueIdx = 0;
 
         for (let i = 0; i < nodeCount; i++) {
@@ -260,6 +262,9 @@ const processStrategy = async (submission: StrategySubmission) => {
 
             // Parse args based on their utypes and map to semantic names
             const args: any = {};
+            const dbArgs: any[] = []; // Raw args for database
+            const argTypes: number[] = []; // Arg types for database
+
             for (let j = 0; j < node.argHandles.length; j++) {
                 const argValue = decryptedValues[valueIdx++];
                 const argType = node.argHandles[j].utype;
@@ -267,6 +272,10 @@ const processStrategy = async (submission: StrategySubmission) => {
 
                 // Store with both positional and semantic name
                 args[`arg${j}`] = parsedValue;
+
+                // Save for database (needed for calldata reconstruction)
+                dbArgs.push(parsedValue);
+                argTypes.push(argType);
 
                 // Get semantic name from protocolMapping if available
                 const funcDetails = getFunctionFromSelector(selector);
@@ -287,11 +296,21 @@ const processStrategy = async (submission: StrategySubmission) => {
             console.log(`  Function: ${functionName}`);
             console.log(`  Args:`, args);
 
+            // Add to simulation format
             decryptedNodes.push({
                 protocol,
                 functionName,
                 target,
                 args
+            });
+
+            // Add to database format (for calldata reconstruction)
+            dbNodes.push({
+                encoder,
+                target,
+                selector,
+                args: dbArgs,
+                argTypes
             });
         }
 
@@ -304,10 +323,26 @@ const processStrategy = async (submission: StrategySubmission) => {
         const simulatedAPY = simulate(chainId, decryptedNodes, initialCapital);
         console.log(`Calculated APY: ${simulatedAPY / 100}% (${simulatedAPY} bps)`);
 
+        // Clamp negative APYs to 0 (FHE doesn't support negative numbers)
+        const clampedAPY = Math.max(0, simulatedAPY);
+        if (simulatedAPY < 0) {
+            console.log(`⚠️ Negative APY detected (${simulatedAPY} bps), clamping to 0 for encryption and storage`);
+        }
+
+        // Save to local database for later use (use clamped APY)
+        console.log("Saving strategy to local database...");
+        saveStrategy(
+            Number(submission.epochNumber),
+            submission.submitter,
+            dbNodes,
+            clampedAPY, // Save clamped APY, not negative one
+            Number(submission.submittedAt)
+        );
+
         // Encrypt the APY using CoFHE.js
         console.log("Encrypting APY...");
         const apyInput: EncryptionInput[] = [{
-            value: BigInt(simulatedAPY),
+            value: BigInt(clampedAPY),
             type: FheTypes.Uint16
         }];
 
@@ -352,7 +387,11 @@ const monitorStrategies = async () => {
     let lastProcessedBlock = await provider.getBlockNumber();
     const processedSubmissions = new Set<string>();
 
-    // Query past StrategySubmitted events first
+    // Get current epoch number
+    const currentEpochNumber = await tradeManager.currentEpochNumber();
+    console.log(`Current epoch: ${currentEpochNumber}`);
+
+    // Query past StrategySubmitted events for CURRENT EPOCH ONLY
     try {
         const filter = tradeManager.filters.StrategySubmitted();
         const fromBlock = Math.max(0, lastProcessedBlock - 1000);
@@ -366,9 +405,24 @@ const monitorStrategies = async () => {
                     data: event.data
                 });
                 if (parsedLog) {
-                    const key = `${parsedLog.args[0]}-${parsedLog.args[1]}`;
-                    console.log(`  Past strategy: Epoch ${parsedLog.args[0]}, Submitter: ${parsedLog.args[1]}`);
-                    processedSubmissions.add(key);
+                    const submission: StrategySubmission = {
+                        epochNumber: parsedLog.args[0],
+                        submitter: parsedLog.args[1],
+                        nodeCount: parsedLog.args[2],
+                        submittedAt: parsedLog.args[3]
+                    };
+
+                    // Only process strategies from the current epoch
+                    if (submission.epochNumber === currentEpochNumber) {
+                        const key = `${submission.epochNumber}-${submission.submitter}`;
+                        console.log(`  Past strategy (current epoch): Epoch ${submission.epochNumber}, Submitter: ${submission.submitter}`);
+
+                        processedSubmissions.add(key);
+                        // Process the past strategy!
+                        await processStrategy(submission);
+                    } else {
+                        console.log(`  Skipping past epoch ${submission.epochNumber} (current: ${currentEpochNumber})`);
+                    }
                 }
             }
         } else {
