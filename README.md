@@ -64,7 +64,7 @@ CipherTradeArena uses **Fully Homomorphic Encryption** (FHE) via Fhenix CoFHE co
 
 | Contract | Description | Base Sepolia Address |
 |----------|-------------|---------------------|
-| **TradeManager** | Main strategy competition contract | [`0x9189AA689Ac1C1ff764FA9b242f6dDcD52D861B2`](https://sepolia.basescan.org/address/0x9189AA689Ac1C1ff764FA9b242f6dDcD52D861B2) |
+| **TradeManager** | Main strategy competition contract | [`0xea93e65fefaF6EB63f32BF2Da6739d2Fb2373EE4`](https://sepolia.basescan.org/address/0xea93e65fefaF6EB63f32BF2Da6739d2Fb2373EE4) |
 | **SimpleBoringVault** | Strategy execution vault | [`0x67B492e98AF5bb869dB56d1eAe32D410a7dA0324`](https://sepolia.basescan.org/address/0x67B492e98AF5bb869dB56d1eAe32D410a7dA0324) |
 | **ECDSAStakeRegistry** | Operator stake management | [`0x8fC8CFB7f7362E44E472c690A6e025B80E406458`](https://sepolia.basescan.org/address/0x8fC8CFB7f7362E44E472c690A6e025B80E406458) |
 
@@ -178,17 +178,19 @@ sequenceDiagram
 
 ---
 
-## 📜 Deployed Contracts (Base Sepolia)
+## 📜 Deployed Contracts
 
-### Core Contracts
+### Base Sepolia
+
+#### Core Contracts
 
 | Contract | Description | Address | Explorer |
 |----------|-------------|---------|----------|
-| **TradeManager** | Strategy competition & AVS coordination | `0x9189AA689Ac1C1ff764FA9b242f6dDcD52D861B2` | [View](https://sepolia.basescan.org/address/0x9189AA689Ac1C1ff764FA9b242f6dDcD52D861B2) |
+| **TradeManager** | Strategy competition & AVS coordination | `0xea93e65fefaF6EB63f32BF2Da6739d2Fb2373EE4` | [View](https://sepolia.basescan.org/address/0xea93e65fefaF6EB63f32BF2Da6739d2Fb2373EE4) |
 | **SimpleBoringVault** | Capital deployment vault | `0x67B492e98AF5bb869dB56d1eAe32D410a7dA0324` | [View](https://sepolia.basescan.org/address/0x67B492e98AF5bb869dB56d1eAe32D410a7dA0324) |
 | **ECDSAStakeRegistry** | Operator registration | `0x8fC8CFB7f7362E44E472c690A6e025B80E406458` | [View](https://sepolia.basescan.org/address/0x8fC8CFB7f7362E44E472c690A6e025B80E406458) |
 
-### Mock Tokens (Testnet)
+#### Tokens
 
 | Token | Symbol | Address | Explorer |
 |-------|--------|---------|----------|
@@ -198,13 +200,55 @@ sequenceDiagram
 | **PT sUSDE** | PT-sUSDE | `0x4cabe68B3C6d65F7f12cDDa41998257b6E16DF16` | [View](https://sepolia.basescan.org/address/0x4cabe68B3C6d65F7f12cDDa41998257b6E16DF16) |
 | **PT USR** | PT-USR | `0xfB8C7bE6BAfB392BF2386EBD616916f08e2d5E1f` | [View](https://sepolia.basescan.org/address/0xfB8C7bE6BAfB392BF2386EBD616916f08e2d5E1f) |
 
-### Mock DeFi Protocols (Testnet)
+#### Pendle Markets
+
+| Market | Address | Explorer |
+|--------|---------|----------|
+| **PT eUSDE** | `0x757f4cAf00AFcd41F8389Eb5dE4a8a737a262D45` | [View](https://sepolia.basescan.org/address/0x757f4cAf00AFcd41F8389Eb5dE4a8a737a262D45) |
+| **PT sUSDE** | `0xfeCb7785CA797A709095F4146140329fCf970FE8` | [View](https://sepolia.basescan.org/address/0xfeCb7785CA797A709095F4146140329fCf970FE8) |
+| **PT USR** | `0xB909F6b859910ad59D2F4003cd8610Af4fa41Fef` | [View](https://sepolia.basescan.org/address/0xB909F6b859910ad59D2F4003cd8610Af4fa41Fef) |
+
+#### Protocol Integrations
 
 | Protocol | Address | Explorer |
 |----------|---------|----------|
-| **Mock Pendle** | `0x81095fCdb1502B986a6A3ce33323412d45167364` | [View](https://sepolia.basescan.org/address/0x81095fCdb1502B986a6A3ce33323412d45167364) |
-| **Mock Aave** | `0x7cAC40567e1891902eeafE3fD10FfC3ED4043252` | [View](https://sepolia.basescan.org/address/0x7cAC40567e1891902eeafE3fD10FfC3ED4043252) |
-| **Mock Morpho** | `0x909D68D8A57Ab8F62B6391e117a77B215Ab21Dfc` | [View](https://sepolia.basescan.org/address/0x909D68D8A57Ab8F62B6391e117a77B215Ab21Dfc) |
+| **Pendle** | `0x81095fCdb1502B986a6A3ce33323412d45167364` | [View](https://sepolia.basescan.org/address/0x81095fCdb1502B986a6A3ce33323412d45167364) |
+| **Aave** | `0x7cAC40567e1891902eeafE3fD10FfC3ED4043252` | [View](https://sepolia.basescan.org/address/0x7cAC40567e1891902eeafE3fD10FfC3ED4043252) |
+| **Morpho** | `0x909D68D8A57Ab8F62B6391e117a77B215Ab21Dfc` | [View](https://sepolia.basescan.org/address/0x909D68D8A57Ab8F62B6391e117a77B215Ab21Dfc) |
+
+### Arbitrum Sepolia
+
+#### Core Contracts
+
+| Contract | Description | Address | Explorer |
+|----------|-------------|---------|----------|
+| **TradeManager** | Strategy competition & AVS coordination | `0x6eC553091d057012897168b2FA9af1e2EaD09838` | [View](https://sepolia.arbiscan.io/address/0x6eC553091d057012897168b2FA9af1e2EaD09838) |
+
+#### Tokens
+
+| Token | Symbol | Address | Explorer |
+|-------|--------|---------|----------|
+| **Mock USDC** | USDC | `0xfE9C3ee7E4ADDfca38C66019E6121FBeeED13b6b` | [View](https://sepolia.arbiscan.io/address/0xfE9C3ee7E4ADDfca38C66019E6121FBeeED13b6b) |
+| **Mock USDT** | USDT | `0xBc5149ff8C82547a5BF4da05bBca673FF6550801` | [View](https://sepolia.arbiscan.io/address/0xBc5149ff8C82547a5BF4da05bBca673FF6550801) |
+| **PT eUSDE** | PT-eUSDE | `0x522dEC96f85E65F98B838274b6F915e2C070A465` | [View](https://sepolia.arbiscan.io/address/0x522dEC96f85E65F98B838274b6F915e2C070A465) |
+| **PT sUSDE** | PT-sUSDE | `0x56552E8Aed11b0Ad278823568c48B4f4af67Ba81` | [View](https://sepolia.arbiscan.io/address/0x56552E8Aed11b0Ad278823568c48B4f4af67Ba81) |
+| **PT USR** | PT-USR | `0x5176a7128A92C522B7f65507A1C127c53C180D12` | [View](https://sepolia.arbiscan.io/address/0x5176a7128A92C522B7f65507A1C127c53C180D12) |
+
+#### Pendle Markets
+
+| Market | Address | Explorer |
+|--------|---------|----------|
+| **PT eUSDE** | `0x757f4cAf00AFcd41F8389Eb5dE4a8a737a262D45` | [View](https://sepolia.arbiscan.io/address/0x757f4cAf00AFcd41F8389Eb5dE4a8a737a262D45) |
+| **PT sUSDE** | `0xfeCb7785CA797A709095F4146140329fCf970FE8` | [View](https://sepolia.arbiscan.io/address/0xfeCb7785CA797A709095F4146140329fCf970FE8) |
+| **PT USR** | `0xB909F6b859910ad59D2F4003cd8610Af4fa41Fef` | [View](https://sepolia.arbiscan.io/address/0xB909F6b859910ad59D2F4003cd8610Af4fa41Fef) |
+
+#### Protocol Integrations
+
+| Protocol | Address | Explorer |
+|----------|---------|----------|
+| **Pendle** | `0xdbf367db4979bE1111BA3dfe8f54052419BBbedc` | [View](https://sepolia.arbiscan.io/address/0xdbf367db4979bE1111BA3dfe8f54052419BBbedc) |
+| **Aave** | `0x0d73a73862D21B55E59736026AFca3b9b78A5dBf` | [View](https://sepolia.arbiscan.io/address/0x0d73a73862D21B55E59736026AFca3b9b78A5dBf) |
+| **Morpho** | `0x2CF5914AbE87e5db3e1D2F43c1Bb88DDB198CcD8` | [View](https://sepolia.arbiscan.io/address/0x2CF5914AbE87e5db3e1D2F43c1Bb88DDB198CcD8) |
 
 ---
 
@@ -379,6 +423,16 @@ apyBps = (yearlyYield / initialCapital) * 10000
 - Daily yield: $500
 - Yearly: $182,500
 - APY: 182.5% (18250 bps)
+
+### Avail Nexus SDK Integration
+
+The operator integrates the in-progress `@avail-project/nexus-core` SDK to fetch Nexus data directly from a Node.js runtime. Because the upstream SDK expects an injected browser provider, we expose a minimal EIP-1193 wrapper around our `ethers.Wallet` before calling `initializeNexus`, keeping nonce management and signing fully under operator control.
+
+- `operator/nexus/eip1193Provider.ts` defines `WalletEip1193Provider`, translating core `eth_*` RPC methods into wallet actions while forwarding everything else to the connected `JsonRpcProvider`.
+- `operator/nexus/runtime.ts` provides a lightweight `window` shim (crypto, timers, optional WebSocket) so the SDK can bootstrap without a browser environment.
+- `operator/nexus/sdk.ts` wires the shim and provider together, yielding a reusable `NexusSDK` instance that the off-chain workflow can use alongside EigenLayer calls.
+
+This setup lets us bypass the browser-only requirement from the Avail docs and run the Nexus SDK inside the AVS operator process with full EIP-1193 compatibility.
 
 ### Supported Protocols (Testnet)
 
