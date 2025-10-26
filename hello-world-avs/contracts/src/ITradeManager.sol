@@ -36,7 +36,8 @@ interface ITradeManager {
         InEaddress[] calldata encoders,
         InEaddress[] calldata targets,
         InEuint32[] calldata selectors,
-        DynamicInE[][] calldata nodeArgs
+        DynamicInE[][] calldata nodeArgs,
+        InEuint32 calldata chainId
     ) external;
 
     function reportEncryptedAPY(
@@ -51,4 +52,6 @@ interface ITradeManager {
     // ============ ADMIN FUNCTIONS ============
 
     function setBoringVault(address payable _vault) external;
+
+    function getStrategyChainIdHandle(uint256 epochNumber, address trader) external view returns (uint256);
 }

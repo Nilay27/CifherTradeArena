@@ -19,7 +19,7 @@ function parseDecryptedValue(value: bigint, utype: number): any {
         return Number(value);
     } else if (utype === FheTypes.Uint128 || utype === FheTypes.Uint256) {
         return value; // Keep as bigint for large numbers
-    } else if (utype === FheTypes.Address || utype === FheTypes.Uint160) {
+    } else if (utype === FheTypes.Uint160 || utype === FheTypes.Uint160) {
         return '0x' + value.toString(16).padStart(40, '0');
     } else {
         return value;
@@ -210,13 +210,13 @@ const processStrategy = async (submission: StrategySubmission) => {
             encryptedHandles.push({
                 ctHash: BigInt(node.encoderHandle),
                 securityZone: 0,
-                utype: FheTypes.Address,
+                utype: FheTypes.Uint160,
                 signature: '0x'
             });
             encryptedHandles.push({
                 ctHash: BigInt(node.targetHandle),
                 securityZone: 0,
-                utype: FheTypes.Address,
+                utype: FheTypes.Uint160,
                 signature: '0x'
             });
             encryptedHandles.push({
@@ -251,8 +251,8 @@ const processStrategy = async (submission: StrategySubmission) => {
             const node = nodeStructures[i];
 
             // Parse encoder, target, selector using type-aware parsing
-            const encoder = parseDecryptedValue(decryptedValues[valueIdx++], FheTypes.Address) as string;
-            const target = parseDecryptedValue(decryptedValues[valueIdx++], FheTypes.Address) as string;
+            const encoder = parseDecryptedValue(decryptedValues[valueIdx++], FheTypes.Uint160) as string;
+            const target = parseDecryptedValue(decryptedValues[valueIdx++], FheTypes.Uint160) as string;
             const selectorValue = decryptedValues[valueIdx++];
             const selector = '0x' + selectorValue.toString(16).padStart(8, '0');
 

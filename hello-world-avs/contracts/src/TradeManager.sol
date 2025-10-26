@@ -70,6 +70,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
     struct StrategyPerf {
         StrategyNode[] nodes;      // Array of encrypted strategy nodes
         euint16 encryptedAPY;      // Encrypted APY in basis points (e.g., 1234 = 12.34%)
+        euint32 targetChainId;     // Encrypted destination chain ID
         address submitter;         // Strategy owner
         uint256 submittedAt;       // Submission timestamp
         bool finalized;            // Whether APY has been decrypted
@@ -191,7 +192,8 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         uint256 indexed epochNumber,
         address indexed submitter,
         uint256 nodeCount,
-        uint256 submittedAt
+        uint256 submittedAt,
+        uint256 targetChainIdHandle
     );
 
     event APYReported(
@@ -348,14 +350,15 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         InEaddress[] calldata encoders,
         InEaddress[] calldata targets,
         InEuint32[] calldata selectors,
-        DynamicInE[][] calldata nodeArgs
+        DynamicInE[][] calldata nodeArgs,
+        InEuint32 calldata chainId
     ) external {
         require(currentEpochNumber > 0, "No active epoch");
         EpochData storage epoch = epochs[currentEpochNumber];
 
         require(epoch.state == EpochState.OPEN, "Epoch not open for submissions");
         require(block.timestamp <= epoch.epochEndTime, "Epoch submission period ended");
-        // require(!hasSubmittedStrategy[currentEpochNumber][msg.sender], "Strategy already submitted");
+        require(!hasSubmittedStrategy[currentEpochNumber][msg.sender], "Strategy already submitted");
 
         // Validate all arrays have same length
         require(encoders.length == targets.length, "Array length mismatch");
@@ -365,9 +368,19 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
 
         // Create strategy performance record
         StrategyPerf storage strategy = strategies[currentEpochNumber][msg.sender];
+     
+        strategy.encryptedAPY = euint16.wrap(0);
         strategy.submitter = msg.sender;
         strategy.submittedAt = block.timestamp;
         strategy.finalized = false;
+
+        // Handle encrypted target chain id
+        euint32 targetChainId = FHE.asEuint32(chainId);
+        FHE.allowThis(targetChainId);
+        FHE.allow(targetChainId, msg.sender);
+        for (uint256 k = 0; k < epoch.selectedOperators.length; k++) {
+            FHE.allow(targetChainId, epoch.selectedOperators[k]);
+        }
 
         // Process each strategy node
         for (uint256 i = 0; i < encoders.length; i++) {
@@ -380,7 +393,6 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
             FHE.allowThis(encoder);
             FHE.allowThis(target);
             FHE.allowThis(selector);
-
             // Grant selected operators permission to decrypt for simulation
             for (uint256 k = 0; k < epoch.selectedOperators.length; k++) {
                 FHE.allow(encoder, epoch.selectedOperators[k]);
@@ -421,11 +433,17 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
             strategy.nodes.push(node);
         }
 
-        // Mark submitter as having submitted
+        strategy.targetChainId = targetChainId;
         hasSubmittedStrategy[currentEpochNumber][msg.sender] = true;
         epochSubmitters[currentEpochNumber].push(msg.sender);
 
-        emit StrategySubmitted(currentEpochNumber, msg.sender, encoders.length, block.timestamp);
+        emit StrategySubmitted(
+            currentEpochNumber,
+            msg.sender,
+            encoders.length,
+            block.timestamp,
+            euint32.unwrap(targetChainId)
+        );
     }
 
     /**
@@ -473,7 +491,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
      * @dev Can be called by anyone after epoch duration has passed
      * @param epochNumber The epoch number to close
      */
-    function closeEpoch(uint256 epochNumber) external {
+    function closeEpoch(uint256 epochNumber) external onlyOperator{
         require(epochNumber <= currentEpochNumber, "Invalid epoch");
         EpochData storage epoch = epochs[epochNumber];
 
@@ -569,7 +587,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         address[] calldata targets,
         bytes[] calldata calldatas,
         bytes[] calldata operatorSignatures
-    ) external onlyOperator {
+    ) external {
         require(epochNumber <= currentEpochNumber, "Invalid epoch");
         EpochData storage epoch = epochs[epochNumber];
 
@@ -739,5 +757,10 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         targetHandle = eaddress.unwrap(node.target);
         selectorHandle = euint32.unwrap(node.selector);
         argHandles = node.args;
+    }
+
+    function getStrategyChainIdHandle(uint256 epochNumber, address trader) external view returns (uint256) {
+        StrategyPerf storage strategy = strategies[epochNumber][trader];
+        return euint32.unwrap(strategy.targetChainId);
     }
 }
