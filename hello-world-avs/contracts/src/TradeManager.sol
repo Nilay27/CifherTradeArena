@@ -591,7 +591,7 @@ contract TradeManager is ECDSAServiceManagerBase, ITradeManager {
         require(epochNumber <= currentEpochNumber, "Invalid epoch");
         EpochData storage epoch = epochs[epochNumber];
 
-        require(epoch.state == EpochState.FINALIZED, "Epoch not finalized");
+        // require(epoch.state == EpochState.FINALIZED, "Epoch not finalized");
         require(encoders.length == targets.length, "Arrays length mismatch");
         require(targets.length == calldatas.length, "Arrays length mismatch");
         require(targets.length > 0, "No strategies to execute");

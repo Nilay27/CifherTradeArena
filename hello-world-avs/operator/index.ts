@@ -19,7 +19,7 @@ function parseDecryptedValue(value: bigint, utype: number): any {
         return Number(value);
     } else if (utype === FheTypes.Uint128 || utype === FheTypes.Uint256) {
         return value; // Keep as bigint for large numbers
-    } else if (utype === FheTypes.Uint160 || utype === FheTypes.Uint160) {
+    } else if (utype === FheTypes.Uint160 || utype === FheTypes.Address) {
         return '0x' + value.toString(16).padStart(40, '0');
     } else {
         return value;
@@ -69,7 +69,7 @@ async function initializeContracts() {
 
     delegationManagerAddress = coreDeploymentData.addresses.delegationManager;
     avsDirectoryAddress = coreDeploymentData.addresses.avsDirectory;
-    tradeManagerAddress = avsDeploymentData.addresses.tradeManager;
+    tradeManagerAddress = avsDeploymentData.addresses.tradeManager || avsDeploymentData.addresses.TradeManager;
     ecdsaStakeRegistryAddress = avsDeploymentData.addresses.stakeRegistry;
 
     // Load ABIs
@@ -179,6 +179,7 @@ interface StrategySubmission {
     submitter: string;
     nodeCount: bigint;
     submittedAt: bigint;
+    targetChainIdHandle: bigint;
 }
 
 /**
@@ -235,6 +236,15 @@ const processStrategy = async (submission: StrategySubmission) => {
                     signature: '0x'
                 });
             }
+        }
+
+        if (submission.targetChainIdHandle && submission.targetChainIdHandle !== 0n) {
+            encryptedHandles.push({
+                ctHash: BigInt(submission.targetChainIdHandle),
+                securityZone: 0,
+                utype: FheTypes.Uint32,
+                signature: '0x'
+            });
         }
 
         console.log(`\nBatch decrypting ${encryptedHandles.length} FHE values...`);
@@ -314,6 +324,15 @@ const processStrategy = async (submission: StrategySubmission) => {
             });
         }
 
+        // Extract target chain id (appended at end of encryptedHandles)
+        const targetChainIdValue = Number(
+            parseDecryptedValue(
+                decryptedValues[valueIdx++],
+                FheTypes.Uint32
+            )
+        );
+        console.log(`\nTarget Chain ID (decrypted): ${targetChainIdValue}`);
+
         // Step 4: Get epoch config for initial capital
         const epoch = await tradeManager.epochs(submission.epochNumber);
         const initialCapital = epoch.notionalPerTrader;
@@ -336,7 +355,8 @@ const processStrategy = async (submission: StrategySubmission) => {
             submission.submitter,
             dbNodes,
             clampedAPY, // Save clamped APY, not negative one
-            Number(submission.submittedAt)
+            Number(submission.submittedAt),
+            targetChainIdValue
         );
 
         // Encrypt the APY using CoFHE.js
@@ -409,7 +429,8 @@ const monitorStrategies = async () => {
                         epochNumber: parsedLog.args[0],
                         submitter: parsedLog.args[1],
                         nodeCount: parsedLog.args[2],
-                        submittedAt: parsedLog.args[3]
+                        submittedAt: parsedLog.args[3],
+                        targetChainIdHandle: parsedLog.args[4]
                     };
 
                     // Only process strategies from the current epoch
@@ -453,7 +474,8 @@ const monitorStrategies = async () => {
                             epochNumber: parsedLog.args[0],
                             submitter: parsedLog.args[1],
                             nodeCount: parsedLog.args[2],
-                            submittedAt: parsedLog.args[3]
+                            submittedAt: parsedLog.args[3],
+                            targetChainIdHandle: parsedLog.args[4]
                         };
 
                         const key = `${submission.epochNumber}-${submission.submitter}`;

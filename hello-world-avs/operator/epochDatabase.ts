@@ -36,6 +36,7 @@ export interface StrategyData {
     nodes: StrategyNode[];
     simulatedAPY: number;      // APY in basis points
     submittedAt: number;       // Timestamp
+    targetChainId: number;     // Destination chain
 }
 
 /**
@@ -127,7 +128,8 @@ export function saveStrategy(
     submitter: string,
     nodes: StrategyNode[],
     simulatedAPY: number,
-    submittedAt: number
+    submittedAt: number,
+    targetChainId: number
 ): void {
     const db = loadDatabase();
     const epochKey = epochNumber.toString();
@@ -149,7 +151,8 @@ export function saveStrategy(
         submitter,
         nodes,
         simulatedAPY,
-        submittedAt
+        submittedAt,
+        targetChainId
     };
 
     saveDatabase(db);

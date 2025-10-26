@@ -14,11 +14,18 @@
 
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import { getEpochData, getStrategy, StrategyNode } from "./epochDatabase";
+import { getEpochData, getStrategy, StrategyNode, StrategyData } from "./epochDatabase";
 import { FheTypes } from "./cofheUtils";
+import { mapAddressForChain, getTradeManagerForChain, CHAIN_IDS } from "./utils/chainAddressMapping";
+import { initializeNexus, getNexusSdk, deinitializeNexus } from "./nexus";
+import { ExecuteParams } from "@avail-project/nexus-core";
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
+
+const tradeManagerABI = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../abis/TradeManager.json'), 'utf8')
+);
 
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
@@ -62,8 +69,10 @@ function reconstructCalldata(
             encodedArgs.push(arg);
         } else if (utype === FheTypes.Uint160 || utype === FheTypes.Address) {
             solidityTypes.push('address');
-            const addr = typeof arg === 'string' ? arg : ethers.getAddress(ethers.toBeHex(BigInt(arg), 20));
-            encodedArgs.push(addr);
+            const addrString = typeof arg === 'string'
+                ? normalizeAddress(arg)
+                : ethers.getAddress(ethers.toBeHex(BigInt(arg), 20));
+            encodedArgs.push(addrString);
         } else if (utype === FheTypes.Uint256) {
             solidityTypes.push('uint256');
             encodedArgs.push(arg);
@@ -82,6 +91,55 @@ function reconstructCalldata(
     console.log(`  Calldata: ${calldata.slice(0, 66)}... (${calldata.length} chars)`);
 
     return calldata;
+}
+
+function isAddressType(argType: number): boolean {
+    return argType === FheTypes.Uint160 || argType === FheTypes.Address || argType === 7;
+}
+
+function normalizeAddress(value: string): string {
+    if (!value) {
+        return ethers.ZeroAddress;
+    }
+
+    let candidate = value.trim();
+    candidate = candidate.replace(/^0x0x/i, '0x');
+    if (!/^0x/i.test(candidate)) {
+        candidate = `0x${candidate}`;
+    }
+
+    try {
+        return ethers.getAddress(candidate);
+    } catch (error) {
+        throw new Error(`Invalid address encountered during normalization: ${value}`);
+    }
+}
+
+function tryMapAddress(value: any, targetChainId: number): any {
+    if (typeof value === 'string') {
+        try {
+            const normalized = normalizeAddress(value);
+            const mapped = mapAddressForChain(normalized, targetChainId);
+            return normalizeAddress(mapped);
+        } catch {
+            return value;
+        }
+    }
+    return value;
+}
+
+function remapNodeForChain(node: StrategyNode, targetChainId: number): StrategyNode {
+    const mappedArgs = node.args.map((arg, idx) => {
+        const argType = Number(node.argTypes[idx]);
+        return isAddressType(argType) ? tryMapAddress(arg, targetChainId) : arg;
+    });
+
+    return {
+        ...node,
+        encoder: tryMapAddress(node.encoder, targetChainId),
+        target: tryMapAddress(node.target, targetChainId),
+        args: mappedArgs,
+    };
 }
 
 /**
@@ -108,8 +166,8 @@ function aggregateStrategies(winnerNodes: StrategyNode[][]): {
             const calldata = reconstructCalldata(node.selector, node.args, node.argTypes);
 
             aggregated.push({
-                encoder: node.encoder,
-                target: node.target,
+                encoder: normalizeAddress(node.encoder),
+                target: normalizeAddress(node.target),
                 calldata
             });
         }
@@ -159,6 +217,33 @@ async function main() {
     console.log(`\n🚀 Execute Aggregated Strategies\n`);
     console.log(`Operator: ${wallet.address}`);
     console.log(`Epoch Number: ${epochNumber}\n`);
+
+    await initializeNexus(wallet, { network: 'testnet', debug: false });
+    console.log('Nexus SDK initialized successfully with operator wallet:', wallet.address);
+
+    try {
+        const nexusSdk = getNexusSdk();
+        const unified = await nexusSdk.getUnifiedBalances();
+        console.log('Unified balances data:', unified);
+        const assets = Array.isArray(unified)
+            ? unified
+            : Array.isArray((unified as any)?.assets)
+            ? (unified as any).assets
+            : [];
+        const assetSummaries = assets.map((asset: any) => {
+            const balance = typeof asset.balance === 'string'
+                ? asset.balance
+                : asset.balance?.toString?.() ?? '0';
+            const fiat = typeof asset.balanceInFiat === 'number'
+                ? asset.balanceInFiat.toFixed(2)
+                : asset.balanceInFiat ?? '0';
+            return `${asset.symbol}: ${balance} (~${fiat} USD)`;
+        });
+        console.log('Unified balances summary:', assetSummaries.length ? assetSummaries.join(', ') : 'none');
+    } catch (balanceError) {
+        console.error('Failed to fetch unified balances summary:', balanceError);
+    }
+
 
     // Get chain ID
     const chainId = Number((await provider.getNetwork()).chainId);
@@ -234,7 +319,8 @@ async function main() {
         process.exit(1);
     }
 
-    const winnerNodes: StrategyNode[][] = [];
+    const baseStrategyNodes: StrategyNode[][] = [];
+    const crossChainStrategies = new Map<number, StrategyNode[][]>();
 
     for (const winner of winners) {
         const strategy = getStrategy(Number(epochNumber), winner);
@@ -244,78 +330,145 @@ async function main() {
             process.exit(1);
         }
 
-        console.log(`    - ${winner}: ${strategy.nodes.length} nodes`);
-        winnerNodes.push(strategy.nodes);
+        const targetChainId = strategy.targetChainId ?? chainId;
+        console.log(`    - ${winner}: ${strategy.nodes.length} nodes (target chain ${targetChainId})`);
+
+        const remappedNodes = targetChainId === chainId
+            ? strategy.nodes
+            : strategy.nodes.map((node) => remapNodeForChain(node, targetChainId));
+
+        if (targetChainId === chainId) {
+            baseStrategyNodes.push(remappedNodes);
+        } else {
+            if (!crossChainStrategies.has(targetChainId)) {
+                crossChainStrategies.set(targetChainId, []);
+            }
+            crossChainStrategies.get(targetChainId)!.push(remappedNodes);
+        }
     }
 
-    // ============================================================
-    // STEP 4: Aggregate strategies and reconstruct calldatas
-    // ============================================================
-    const { encoders, targets, calldatas } = aggregateStrategies(winnerNodes);
+    const baseAggregated = baseStrategyNodes.length > 0 ? aggregateStrategies(baseStrategyNodes) : null;
+    const crossAggregated = new Map<number, { encoders: string[]; targets: string[]; calldatas: string[] }>();
 
-    // ============================================================
-    // STEP 5: Create operator signature for consensus
-    // ============================================================
-    console.log("\nStep 5: Creating operator signature...");
-    const signature = await createOperatorSignature(epochNumber, encoders, targets, calldatas);
+    for (const [targetChainId, nodes] of crossChainStrategies.entries()) {
+        console.log(`\n[Cross-chain] Preparing ${nodes.length} strategy bundles for chain ${targetChainId}`);
+        crossAggregated.set(targetChainId, aggregateStrategies(nodes));
+    }
 
-    // ============================================================
-    // STEP 6: Execute aggregated strategies
-    // ============================================================
-    console.log("\nStep 6: Executing aggregated strategies...");
+    async function executeCrossChainViaNexus(
+        epoch: bigint,
+        targetChainId: number,
+        aggregated: { encoders: string[]; targets: string[]; calldatas: string[] },
+        signature: string,
+    ): Promise<void> {
+        const tradeManagerAddress = getTradeManagerForChain(targetChainId);
+        const sdk = getNexusSdk();
 
-    try {
-        const nonce = await provider.getTransactionCount(wallet.address);
-        const tx = await tradeManager.executeEpochTopStrategiesAggregated(
-            epochNumber,
-            encoders,
-            targets,
-            calldatas,
-            [signature],
-            {
-                nonce,
-                gasLimit: 5000000
+        try {
+            console.log(`  → Dispatching executeEpochTopStrategiesAggregated to ${tradeManagerAddress} on chain ${targetChainId}`);
+            const result = await sdk.execute({
+                toChainId: targetChainId,
+                contractAddress: tradeManagerAddress,
+                contractAbi: tradeManagerABI,
+                functionName: 'executeEpochTopStrategiesAggregated',
+                buildFunctionParams: () => ({
+                    functionParams: [
+                        epoch,
+                        aggregated.encoders,
+                        aggregated.targets,
+                        aggregated.calldatas,
+                        [signature],
+                    ],
+                }),
+                waitForReceipt: true,
+                requiredConfirmations: 1,
+            } as ExecuteParams);
+
+            if (result.receipt) {
+                console.log(`  ✅ Cross-chain execution included in tx ${result.receipt.transactionHash}`);
+                console.log(`Nexus execution submitted for Chain ${targetChainId}`);
+            } else {
+                console.log('  ⚠️ Cross-chain execution dispatched; receipt unavailable (check Nexus dashboard).');
             }
+        } catch (error: any) {
+            console.error(`  ❌ Nexus execution failed for chain ${targetChainId}: ${error?.message ?? error}`);
+            throw error;
+        }
+    }
+
+    if (baseAggregated) {
+        console.log("\nStep 5: Creating operator signature...");
+        const baseSignature = await createOperatorSignature(
+            epochNumber,
+            baseAggregated.encoders,
+            baseAggregated.targets,
+            baseAggregated.calldatas
         );
 
-        console.log(`  TX: ${tx.hash}`);
-        console.log("  Waiting for confirmation...");
+        console.log("\nStep 6: Executing aggregated strategies on base chain...");
 
-        const receipt = await tx.wait();
-        console.log(`  ✅ Confirmed in block ${receipt.blockNumber}`);
-        console.log(`  Gas used: ${receipt.gasUsed.toString()}`);
-
-        // Parse EpochExecuted event
-        const executedEvent = receipt.logs
-            .map((log: any) => {
-                try {
-                    return tradeManager.interface.parseLog(log);
-                } catch {
-                    return null;
+        try {
+            const nonce = await provider.getTransactionCount(wallet.address);
+            const tx = await tradeManager.executeEpochTopStrategiesAggregated(
+                epochNumber,
+                baseAggregated.encoders,
+                baseAggregated.targets,
+                baseAggregated.calldatas,
+                [baseSignature],
+                {
+                    nonce,
+                    gasLimit: 5_000_000
                 }
-            })
-            .find((e: any) => e && e.name === 'EpochExecuted');
+            );
 
-        if (executedEvent) {
-            console.log(`\n📋 EpochExecuted Event:`);
-            console.log(`  Epoch: ${executedEvent.args.epochNumber}`);
-            const totalDeployedRaw = executedEvent.args.totalDeployed ?? 0n;
-            const totalDeployed =
-                typeof totalDeployedRaw === 'bigint'
-                    ? totalDeployedRaw
-                    : BigInt(totalDeployedRaw.toString());
-            console.log(`  Capital Deployed: ${ethers.formatUnits(totalDeployed, 6)} USDC`);
+            console.log(`  TX: ${tx.hash}`);
+            console.log("  Waiting for confirmation...");
+
+            const receipt = await tx.wait();
+            console.log(`  ✅ Confirmed in block ${receipt.blockNumber}`);
+            console.log(`  Gas used: ${receipt.gasUsed.toString()}`);
+
+            const executedEvent = receipt.logs
+                .map((log: any) => {
+                    try {
+                        return tradeManager.interface.parseLog(log);
+                    } catch {
+                        return null;
+                    }
+                })
+                .find((e: any) => e && e.name === 'EpochExecuted');
+
+            if (executedEvent) {
+                console.log(`\n📋 EpochExecuted Event:`);
+                console.log(`  Epoch: ${executedEvent.args.epochNumber}`);
+                const totalDeployedRaw = executedEvent.args.totalDeployed ?? 0n;
+                const totalDeployed =
+                    typeof totalDeployedRaw === 'bigint'
+                        ? totalDeployedRaw
+                        : BigInt(totalDeployedRaw.toString());
+                console.log(`  Capital Deployed: ${ethers.formatUnits(totalDeployed, 6)} USDC`);
+            }
+
+            console.log(`\n✅ Epoch ${epochNumber} executed successfully on base chain!`);
+        } catch (error: any) {
+            console.error(`\n❌ Failed to execute strategies on base chain: ${error.message}`);
+            if (error.reason) {
+                console.error(`Reason: ${error.reason}`);
+            }
         }
+    } else {
+        console.log("\nNo base-chain strategies to execute locally.");
+    }
 
-        console.log(`\n✅ Epoch ${epochNumber} executed successfully!`);
-        console.log(`\n🎉 Strategies deployed to BoringVault!`);
-
-    } catch (error: any) {
-        console.error(`\n❌ Failed to execute strategies: ${error.message}`);
-        if (error.reason) {
-            console.error(`Reason: ${error.reason}`);
-        }
-        process.exit(1);
+    for (const [targetChainId, aggregated] of crossAggregated.entries()) {
+        console.log(`\n🌐 Executing aggregated strategies on chain ${targetChainId} via Nexus...`);
+        const signature = await createOperatorSignature(
+            epochNumber,
+            aggregated.encoders,
+            aggregated.targets,
+            aggregated.calldatas
+        );
+        await executeCrossChainViaNexus(epochNumber, targetChainId, aggregated, signature);
     }
 }
 

@@ -8,36 +8,35 @@
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 import { initializeCofhe, batchEncrypt, FheTypes } from "./cofheUtils";
+import { getTradeManagerForChain } from "./utils/chainAddressMapping";
 const fs = require('fs');
 const path = require('path');
 dotenv.config();
 
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
+async function startEpochOnChain(rpcUrl: string | undefined, label: string) {
+    if (!rpcUrl) {
+        console.log(`\n⚠️ Skipping ${label}: RPC URL not configured`);
+        return;
+    }
 
-async function main() {
-    console.log("\n🚀 Setup and Start Epoch\n");
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
+
+    console.log(`\n🚀 Setup and Start Epoch (${label})`);
     console.log(`Wallet: ${wallet.address}`);
 
-    // Get chain ID
     const chainId = Number((await provider.getNetwork()).chainId);
     console.log(`Chain ID: ${chainId}`);
 
-    // Hardcoded TradeManager address for Arbitrum Sepolia
-    const tradeManagerAddress = chainId === 421614
-        ? "0x0104cC21941834d934C574358956a395779Be1Ec"
-        : "0x9189AA689Ac1C1ff764FA9b242f6dDcD52D861B2"; // Base Sepolia fallback
-
+    const tradeManagerAddress = getTradeManagerForChain(chainId);
     console.log(`TradeManager: ${tradeManagerAddress}\n`);
 
-    // Load full ABI
     const tradeManagerABI = JSON.parse(
         fs.readFileSync(path.resolve(__dirname, '../abis/TradeManager.json'), 'utf8')
     );
 
     const tradeManager = new ethers.Contract(tradeManagerAddress, tradeManagerABI, wallet);
 
-    // Step 1: Check if operator is already registered
     console.log("Step 1: Checking operator registration...");
     const isRegistered = await tradeManager.operatorRegistered(wallet.address);
 
@@ -56,11 +55,9 @@ async function main() {
         console.log("  ✅ Operator already registered");
     }
 
-    // Step 2: Initialize CoFHE for encrypting simulation window
     console.log("\nStep 2: Encrypting simulation window...");
     await initializeCofhe(wallet);
 
-    // Define simulation window (7 days ago to 1 day ago)
     const now = Math.floor(Date.now() / 1000);
     const simStartTime = now - (7 * 24 * 60 * 60);
     const simEndTime = now - (1 * 24 * 60 * 60);
@@ -81,13 +78,12 @@ async function main() {
     const encSimEndTime = encryptedTimes[1];
     console.log("  ✅ Encrypted");
 
-    // Step 3: Start epoch
     console.log("\nStep 3: Starting epoch...");
 
-    const epochDuration = 5 * 60; // 5 minutes
+    const epochDuration = 5 * 60;
     const weights = [100];
-    const notionalPerTrader = ethers.parseUnits("100000", 6); // 100k USDC
-    const allocatedCapital = ethers.parseUnits("100000", 6); // 1M USDC
+    const notionalPerTrader = ethers.parseUnits("100000", 6);
+    const allocatedCapital = ethers.parseUnits("100000", 6);
 
     console.log(`  Duration: ${epochDuration / 60} minutes`);
     console.log(`  Weights: [${weights.join(', ')}]`);
@@ -115,7 +111,7 @@ async function main() {
             allocatedCapital,
             {
                 nonce: nonce2,
-                gasLimit: 5000000
+                gasLimit: 5_000_000
             }
         );
 
@@ -126,18 +122,22 @@ async function main() {
         console.log(`  ✅ Confirmed in block ${receipt.blockNumber}`);
 
         const epochNumber = await tradeManager.currentEpochNumber();
-        console.log(`\n✅ Epoch ${epochNumber} started!`);
+        console.log(`\n✅ Epoch ${epochNumber} started on ${label}!`);
         console.log(`Ends at: ${new Date((now + epochDuration) * 1000).toISOString()}`);
-        console.log(`\nNext: ts-node operator/createEncryptedStrategyInputs.ts`);
-
     } catch (error: any) {
-        console.error("\n❌ Failed to start epoch:");
+        console.error(`\n❌ Failed to start epoch on ${label}:`);
         console.error(error.message);
         if (error.data) {
             console.error("Error data:", error.data);
         }
-        process.exit(1);
+        // Do not exit; continue to next chain
     }
+}
+
+async function main() {
+    await startEpochOnChain(process.env.RPC_URL, "Base");
+    await startEpochOnChain(process.env.ARB_SEPOLIA_RPC_URL, "Arbitrum");
+    console.log("\n✅ Setup script completed for all configured chains.");
 }
 
 main().catch((error) => {

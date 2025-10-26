@@ -625,6 +625,30 @@
   },
   {
     "type": "function",
+    "name": "getStrategyChainIdHandle",
+    "inputs": [
+      {
+        "name": "epochNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trader",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getStrategyNode",
     "inputs": [
       {
@@ -1182,6 +1206,11 @@
         "internalType": "euint16"
       },
       {
+        "name": "targetChainId",
+        "type": "uint256",
+        "internalType": "euint32"
+      },
+      {
         "name": "submitter",
         "type": "address",
         "internalType": "address"
@@ -1288,6 +1317,33 @@
         "name": "nodeArgs",
         "type": "tuple[][]",
         "internalType": "struct DynamicInE[][]",
+        "components": [
+          {
+            "name": "ctHash",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "securityZone",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "utype",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "chainId",
+        "type": "tuple",
+        "internalType": "struct InEuint32",
         "components": [
           {
             "name": "ctHash",
@@ -1616,6 +1672,12 @@
       },
       {
         "name": "submittedAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "targetChainIdHandle",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

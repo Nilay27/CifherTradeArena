@@ -7,6 +7,9 @@ import {TradeManager} from "../src/TradeManager.sol";
 import {ECDSAStakeRegistry} from "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
 import {CoreDeployLib, CoreDeploymentParsingLib} from "./utils/CoreDeploymentParsingLib.sol";
 import {TradeManagerDeploymentLib} from "./utils/TradeManagerDeploymentLib.sol";
+import {stdJson} from "forge-std/StdJson.sol";
+import {SimpleBoringVault} from "../src/SimpleBoringVault.sol";
+
 
 interface IUniversalPrivacyHook {
     function setTradeManager(address _swapManager) external;
@@ -19,9 +22,12 @@ interface IUniversalPrivacyHook {
  * @dev This fixes the SepoliaConfig immutable variable issue with proxies
  */
 contract DeployTradeManagerDirect is Script {
+    using stdJson for string;
+
     address internal deployer;
     CoreDeployLib.DeploymentData coreDeployment;
     TradeManagerDeploymentLib.DeploymentConfigData swapManagerConfig;
+    address payable boringVault;
 
     // UniversalPrivacyHook address on Sepolia
     address constant UNIVERSAL_PRIVACY_HOOK = 0x2b9fDfbbDBD418Be2bD5d8c0baA73357FF214080;
@@ -35,6 +41,13 @@ contract DeployTradeManagerDirect is Script {
 
         coreDeployment =
             CoreDeploymentParsingLib.readDeploymentJson("deployments/core/", block.chainid);
+
+        // Load BoringVault address
+        string memory boringVaultPath = string.concat("deployments/boring-vault/", vm.toString(block.chainid), ".json");
+        require(vm.exists(boringVaultPath), "BoringVault deployment file does not exist");
+        string memory boringVaultJson = vm.readFile(boringVaultPath);
+
+        boringVault = payable(boringVaultJson.readAddress(".addresses.SimpleBoringVault"));
     }
 
     function run() external virtual {
@@ -69,12 +82,21 @@ contract DeployTradeManagerDirect is Script {
         console2.log("Current admin:", currentAdmin);
         require(currentAdmin == deployer, "Admin mismatch");
 
+        // Link the existing BoringVault
+        tradeManager.setBoringVault(boringVault);
+        console2.log("BoringVault linked:", boringVault);
+
+        // Authorize TradeManager as executor within the vault (requires deployer to be current vault tradeManager)
+        SimpleBoringVault(boringVault).setExecutor(address(tradeManager), true);
+        console2.log("TradeManager authorized inside SimpleBoringVault");
+
         vm.stopBroadcast();
 
         console2.log("\n=== Deployment Complete ===");
         console2.log("TradeManager (non-upgradeable):", address(tradeManager));
         console2.log("StakeRegistry:", existingDeployment.stakeRegistry);
         console2.log("UniversalPrivacyHook:", UNIVERSAL_PRIVACY_HOOK);
+        console2.log("SimpleBoringVault:", boringVault);
 
         // Write deployment info
         writeDeploymentInfo(address(tradeManager), existingDeployment);
@@ -98,6 +120,8 @@ contract DeployTradeManagerDirect is Script {
             vm.toString(existingDeployment.stakeRegistry),
             '","universalPrivacyHook":"',
             vm.toString(UNIVERSAL_PRIVACY_HOOK),
+            '","boringVault":"',
+            vm.toString(boringVault),
             '","strategy":"',
             vm.toString(existingDeployment.strategy),
             '","token":"',
