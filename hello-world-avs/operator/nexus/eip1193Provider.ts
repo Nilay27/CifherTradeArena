@@ -16,8 +16,8 @@ export class WalletEip1193Provider
     extends EventEmitter
     implements EthereumProvider
 {
-    private readonly wallet: ethers.Wallet;
-    private readonly rpcProvider: ethers.JsonRpcProvider;
+    private wallet: ethers.Wallet;
+    private rpcProvider: ethers.JsonRpcProvider;
     private cachedChainId?: bigint;
 
     constructor(wallet: ethers.Wallet) {
@@ -49,7 +49,7 @@ export class WalletEip1193Provider
 
             case 'wallet_switchEthereumChain':
             case 'wallet_addEthereumChain':
-                // Operator runs against a fixed RPC. Treat chain switch as no-op.
+                await this.handleChainSwitch(paramArray[0]);
                 return null;
 
             case 'eth_sendTransaction':
@@ -82,6 +82,49 @@ export class WalletEip1193Provider
             this.cachedChainId = network.chainId;
         }
         return ethers.toBeHex(this.cachedChainId) as HexString;
+    }
+
+    private getRpcUrlForChain(chainId: number): string | null {
+        const baseUrl = process.env.RPC_URL;
+        const arbUrl = process.env.ARB_SEPOLIA_RPC_URL;
+
+        switch (chainId) {
+            case 84532: // Base Sepolia
+                return baseUrl ?? null;
+            case 421614: // Arbitrum Sepolia
+                return arbUrl ?? null;
+            default:
+                return null;
+        }
+    }
+
+    private async handleChainSwitch(param: unknown): Promise<void> {
+        const requested = (param as { chainId?: string })?.chainId;
+        if (!requested) {
+            throw new Error('wallet_switchEthereumChain requires chainId');
+        }
+
+        const targetChainId = Number(BigInt(requested));
+
+        if (this.cachedChainId === undefined) {
+            await this.getHexChainId();
+        }
+
+        if (Number(this.cachedChainId) === targetChainId) {
+            return; // already on requested chain
+        }
+
+        const rpcUrl = this.getRpcUrlForChain(targetChainId);
+        if (!rpcUrl) {
+            console.warn(`wallet_switchEthereumChain: no RPC configured for chain ${targetChainId}, keeping existing provider`);
+            return;
+        }
+
+        const newProvider = new ethers.JsonRpcProvider(rpcUrl);
+        this.rpcProvider = newProvider;
+        this.wallet = this.wallet.connect(newProvider);
+        this.cachedChainId = undefined;
+        await this.getHexChainId();
     }
 
     private async handleSendTransaction(rawTx: Record<string, unknown>) {
