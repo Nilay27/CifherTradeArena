@@ -1,5 +1,5 @@
-   0.415568334s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_avs_operator", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/lib.rs", Edition2021) }
-   0.415840209s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-a309dbd1bfab604c/lib-swap_manager_avs_operator`
+   0.791620167s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_avs_operator", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/lib.rs", Edition2021) }
+   0.791969958s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-a309dbd1bfab604c/lib-swap_manager_avs_operator`
 
 Caused by:
     No such file or directory (os error 2)
@@ -23,8 +23,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.447957959s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_utils", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils/src/lib.rs", Edition2021) }
-   0.447979625s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-utils-8918577a93c73b73/lib-swap_manager_utils`
+   0.915494333s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_utils", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils/src/lib.rs", Edition2021) }
+   0.915533292s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-utils-8918577a93c73b73/lib-swap_manager_utils`
 
 Caused by:
     No such file or directory (os error 2)
@@ -49,8 +49,8 @@ Stack backtrace:
   16: std::rt::lang_start::<()>::{closure#0}
   17: std::rt::lang_start_internal
   18: _main
-   0.449345167s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_avs_operator", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/lib.rs", Edition2021) }
-   0.449358459s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-0174c292b350dc37/test-lib-swap_manager_avs_operator`
+   0.919092708s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_avs_operator", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/lib.rs", Edition2021) }
+   0.919129292s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="swap_manager_avs_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-0174c292b350dc37/test-lib-swap_manager_avs_operator`
 
 Caused by:
     No such file or directory (os error 2)
@@ -74,8 +74,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.451563125s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name: "challenger", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/challenger.rs", Edition2021) }
-   0.451581917s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-d478996578ec8504/bin-challenger`
+   0.925583250s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name: "challenger", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/challenger.rs", Edition2021) }
+   0.925620375s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-d478996578ec8504/bin-challenger`
 
 Caused by:
     No such file or directory (os error 2)
@@ -99,8 +99,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.453444625s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name: "challenger", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/challenger.rs", Edition2021) }
-   0.453454000s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-a3ea43740b1aae25/test-bin-challenger`
+   0.930138792s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name: "challenger", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/challenger.rs", Edition2021) }
+   0.930163708s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="challenger"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-a3ea43740b1aae25/test-bin-challenger`
 
 Caused by:
     No such file or directory (os error 2)
@@ -124,8 +124,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.455233834s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name: "spam_tasks", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/spam_tasks.rs", Edition2021) }
-   0.455241959s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-59b2ed7ea11338a6/bin-spam_tasks`
+   0.935373958s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name: "spam_tasks", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/spam_tasks.rs", Edition2021) }
+   0.935408042s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-59b2ed7ea11338a6/bin-spam_tasks`
 
 Caused by:
     No such file or directory (os error 2)
@@ -149,8 +149,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.456952500s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name: "spam_tasks", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/spam_tasks.rs", Edition2021) }
-   0.456960250s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-84ffc46f4f21cc09/test-bin-spam_tasks`
+   0.940504042s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name: "spam_tasks", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/spam_tasks.rs", Edition2021) }
+   0.940534833s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="spam_tasks"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-84ffc46f4f21cc09/test-bin-spam_tasks`
 
 Caused by:
     No such file or directory (os error 2)
@@ -174,8 +174,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.458716292s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name: "start_operator", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/start_operator.rs", Edition2021) }
-   0.458723959s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-9ae8518a36b629b7/bin-start_operator`
+   0.945191458s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: false }/TargetInner { name: "start_operator", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/start_operator.rs", Edition2021) }
+   0.945210417s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-9ae8518a36b629b7/bin-start_operator`
 
 Caused by:
     No such file or directory (os error 2)
@@ -199,8 +199,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.460443167s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name: "start_operator", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/start_operator.rs", Edition2021) }
-   0.460449875s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-2d7166a6204d3a34/test-bin-start_operator`
+   0.949722583s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator)/Check { test: true }/TargetInner { name: "start_operator", doc: true, ..: with_path("/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator/src/start_operator.rs", Edition2021) }
+   0.949740917s  INFO prepare_target{force=false package_id=swap-manager-avs-operator v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/operator) target="start_operator"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-avs-operator-2d7166a6204d3a34/test-bin-start_operator`
 
 Caused by:
     No such file or directory (os error 2)
@@ -224,8 +224,8 @@ Stack backtrace:
   15: std::rt::lang_start::<()>::{closure#0}
   16: std::rt::lang_start_internal
   17: _main
-   0.462237000s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_utils", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils/src/lib.rs", Edition2021) }
-   0.462246292s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-utils-7c42f58c085bdc4a/test-lib-swap_manager_utils`
+   0.954437750s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint: fingerprint error for swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("swap_manager_utils", ["lib"], "/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils/src/lib.rs", Edition2021) }
+   0.954460125s  INFO prepare_target{force=false package_id=swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils) target="swap_manager_utils"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/target/debug/.fingerprint/swap-manager-utils-7c42f58c085bdc4a/test-lib-swap_manager_utils`
 
 Caused by:
     No such file or directory (os error 2)
@@ -250,6 +250,6 @@ Stack backtrace:
   16: std::rt::lang_start_internal
   17: _main
     Checking swap-manager-utils v0.0.1-alpha (/Users/nilay/hookathon/CipherTradeArena/hello-world-avs/operator/rust/crates/utils)
-error: could not compile `swap-manager-utils` (lib test) due to 1 previous error; 12 warnings emitted
-warning: build failed, waiting for other jobs to finish...
 error: could not compile `swap-manager-utils` (lib) due to 1 previous error; 12 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `swap-manager-utils` (lib test) due to 1 previous error; 12 warnings emitted

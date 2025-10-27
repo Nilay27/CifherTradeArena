@@ -81,7 +81,7 @@ async function startEpochOnChain(rpcUrl: string | undefined, label: string) {
     console.log("\nStep 3: Starting epoch...");
 
     const epochDuration = 5 * 60;
-    const weights = [100];
+    const weights = [50,50];
     const notionalPerTrader = ethers.parseUnits("100000", 6);
     const allocatedCapital = ethers.parseUnits("100000", 6);
 

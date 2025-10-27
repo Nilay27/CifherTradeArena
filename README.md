@@ -46,18 +46,18 @@ CipherTradeArena uses **Fully Homomorphic Encryption** (FHE) via Fhenix CoFHE co
 ### System Components
 
 ```
-┌─────────────┐      ┌──────────────┐      ┌─────────────┐
-│   Traders   │ ───▶ │ TradeManager │ ◀─── │ AVS Operators│
-│  (Clients)  │      │  (On-chain)  │      │  (Off-chain) │
-└─────────────┘      └──────────────┘      └─────────────┘
-     │ Encrypt              │                      │ Decrypt
-     │ Strategy             │                      │ Simulate
-     │                      │                      │ Report APY
-     ▼                      ▼                      ▼
- ┌──────────┐        ┌─────────┐           ┌──────────┐
- │  CoFHE   │        │ Boring  │           │  Events  │
- │Processors│        │  Vault  │           │  Stream  │
- └──────────┘        └─────────┘           └──────────┘
+┌─────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│   Traders   │ ───▶ │ TradeManager │ ◀─── │ AVS Operators│ ───▶ │  Avail Nexus  │
+│  (Clients)  │      │  (On-chain)  │      │  (Off-chain) │      │ (Cross-chain) │
+└─────────────┘      └──────────────┘      └──────────────┘      └──────────────┘
+     │ Encrypt              │                      │                        │
+     │ Strategy             │                      │                        │ Dispatch
+     │                      │                      │ Simulate               │ to target
+     ▼                      ▼                      ▼                        ▼
+ ┌──────────┐        ┌─────────┐           ┌──────────┐             ┌──────────────┐
+ │  CoFHE   │        │ Boring  │           │  Events  │             │   DeFi / DA   │
+ │Processors│        │  Vault  │           │  Stream  │             │ Destinations  │
+ └──────────┘        └─────────┘           └──────────┘             └──────────────┘
 ```
 
 ### Core Contracts
@@ -99,15 +99,18 @@ sequenceDiagram
     participant CoFHE
     participant TradeManager
     participant AVS
+    participant "Avail Nexus"
 
     rect rgb(60, 80, 40)
         Note over Trader,TradeManager: PHASE 2: Strategy Submission
         Trader->>CoFHE: Encrypt strategy nodes
         Note over Trader,CoFHE: Encoder, Target,<br/>Selector, Args
-        Trader->>TradeManager: submitEncryptedStrategy()
+        Trader->>TradeManager: submitEncryptedStrategy(targetChainId)
         TradeManager->>AVS: Grant decryption permission
         TradeManager-->>Trader: Strategy submitted
+        TradeManager-->>"Avail Nexus": Emit StrategySubmitted metadata
         AVS->>AVS: Listen for StrategySubmitted event
+        "Avail Nexus"-->>AVS: Surface target chain routing
     end
 ```
 
@@ -119,12 +122,15 @@ sequenceDiagram
     participant AVS
     participant CoFHE
     participant TradeManager
+    participant "Avail Nexus"
 
     rect rgb(40, 80, 60)
         Note over AVS,TradeManager: PHASE 3: AVS Processing (Off-chain)
         AVS->>TradeManager: Fetch encrypted strategy
         AVS->>CoFHE: Batch decrypt nodes
         CoFHE-->>AVS: Decrypted values
+        AVS->>"Avail Nexus": Fetch cross-chain routing context
+        "Avail Nexus"-->>AVS: Unified balances & target chain info
         AVS->>AVS: Simulate on 100k notional
         AVS->>AVS: Calculate APY
         AVS->>CoFHE: Encrypt APY
@@ -140,6 +146,7 @@ sequenceDiagram
     participant Admin
     participant TradeManager
     participant AVS
+    participant "Avail Nexus"
 
     rect rgb(60, 40, 80)
         Note over Admin,AVS: PHASE 4: Epoch Closure & Finalization
@@ -150,7 +157,9 @@ sequenceDiagram
         AVS->>AVS: Rank by APY
         AVS->>AVS: Select top winners
         AVS->>TradeManager: finalizeEpoch(winners, APYs)
+        TradeManager-->>"Avail Nexus": Emit FinalizedEpoch metadata
         TradeManager-->>Admin: Winners selected
+        "Avail Nexus"-->>AVS: Confirm cross-chain dispatch windows
     end
 ```
 
@@ -161,18 +170,22 @@ sequenceDiagram
 sequenceDiagram
     participant AVS
     participant TradeManager
+    participant "Avail Nexus"
     participant BoringVault
-    participant DeFi
+    participant "Base DeFi"
+    participant "Target Chains Defi"
 
     rect rgb(30, 80, 50)
-        Note over AVS,DeFi: PHASE 5: Strategy Execution
+        Note over AVS: PHASE 5: Strategy Execution
         AVS->>AVS: Get winner strategies from events
         AVS->>AVS: Aggregate calls
         AVS->>AVS: Reconstruct calldata
         AVS->>AVS: Sign for consensus
-        AVS->>TradeManager: executeEpochTopStrategiesAggregated()
+        AVS->>TradeManager: executeEpochTopStrategiesAggregated() (base chain)
         TradeManager->>BoringVault: Execute aggregated strategy
-        BoringVault->>DeFi: Deploy capital
+        BoringVault->>"Base DeFi": Deploy capital
+        AVS->>"Avail Nexus": Dispatch cross-chain bundles
+        "Avail Nexus"->>"Target Chains Defi": Relay aggregated calldata
     end
 ```
 
